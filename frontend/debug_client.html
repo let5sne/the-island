@@ -51,6 +51,88 @@
             background: #44ff44;
             box-shadow: 0 0 10px rgba(68, 255, 68, 0.5);
         }
+
+        /* Boss Health Bar */
+        .boss-panel {
+            background: rgba(255, 68, 68, 0.1);
+            border: 1px solid rgba(255, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .boss-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .boss-name {
+            color: #ff6666;
+            font-size: 1.3rem;
+            font-weight: bold;
+        }
+        .boss-hp-text {
+            color: #ffaaaa;
+            font-size: 0.9rem;
+        }
+        .health-bar-container {
+            width: 100%;
+            height: 30px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+        .health-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444 0%, #ff6666 100%);
+            border-radius: 15px;
+            transition: width 0.3s ease;
+        }
+        .health-bar-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+
+        /* Player Stats Panel */
+        .player-panel {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .player-header {
+            color: #00d4ff;
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+        }
+        .player-stats {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .stat-icon {
+            font-size: 1.5rem;
+        }
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
         .panels {
             display: flex;
             flex-direction: column;
@@ -104,6 +186,19 @@
             background: #666;
             cursor: not-allowed;
         }
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .quick-btn {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+        .quick-btn.attack { background: #ff6666; }
+        .quick-btn.heal { background: #44ff88; }
+        .quick-btn.status { background: #ffaa44; }
         .controls {
             display: flex;
             gap: 15px;
@@ -117,7 +212,7 @@
             font-size: 14px;
         }
         .event-log {
-            height: 400px;
+            height: 350px;
             overflow-y: auto;
             background: rgba(0, 0, 0, 0.4);
             border-radius: 8px;
@@ -133,9 +228,15 @@
         }
         .event.comment { border-color: #ffaa00; background: rgba(255, 170, 0, 0.1); }
         .event.agent_response { border-color: #00ff88; background: rgba(0, 255, 136, 0.1); }
-        .event.tick { border-color: #888; background: rgba(136, 136, 136, 0.1); }
+        .event.tick { border-color: #888; background: rgba(136, 136, 136, 0.05); opacity: 0.6; }
         .event.system { border-color: #00d4ff; background: rgba(0, 212, 255, 0.1); }
         .event.error { border-color: #ff4444; background: rgba(255, 68, 68, 0.1); }
+        /* RPG Event Styles */
+        .event.attack { border-color: #ff4444; background: rgba(255, 68, 68, 0.15); color: #ff8888; }
+        .event.heal { border-color: #44ff88; background: rgba(68, 255, 136, 0.15); color: #88ffaa; }
+        .event.status { border-color: #ffaa44; background: rgba(255, 170, 68, 0.1); }
+        .event.boss_update { border-color: #ff6666; background: rgba(255, 102, 102, 0.1); }
+        .event.boss_defeated { border-color: #ffdd00; background: rgba(255, 221, 0, 0.2); color: #ffee88; font-weight: bold; }
         .event-time { color: #888; font-size: 11px; }
         .event-type { font-weight: bold; text-transform: uppercase; font-size: 11px; }
         .event-data { margin-top: 5px; }
@@ -153,13 +254,51 @@
             <button id="connectBtn" onclick="toggleConnection()">Connect</button>
         </div>
 
+        <!-- Boss Health Panel -->
+        <div class="boss-panel">
+            <div class="boss-header">
+                <span class="boss-name" id="bossName">Dragon</span>
+                <span class="boss-hp-text" id="bossHpText">HP: 1000 / 1000</span>
+            </div>
+            <div class="health-bar-container">
+                <div class="health-bar" id="bossHealthBar" style="width: 100%"></div>
+                <span class="health-bar-label" id="bossHealthLabel">100%</span>
+            </div>
+        </div>
+
+        <!-- Player Stats Panel -->
+        <div class="player-panel">
+            <div class="player-header">Your Stats</div>
+            <div class="player-stats">
+                <div class="stat-item">
+                    <span class="stat-icon">❤️</span>
+                    <div>
+                        <div class="stat-value" id="playerHp">100/100</div>
+                        <div class="stat-label">HP</div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-icon">💰</span>
+                    <div>
+                        <div class="stat-value" id="playerGold">0</div>
+                        <div class="stat-label">Gold</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="panels">
             <div class="panel">
-                <h2>Send Mock Comment</h2>
+                <h2>Send Command</h2>
                 <div class="input-group">
                     <input type="text" id="username" placeholder="Username" value="TestUser">
-                    <input type="text" id="message" placeholder="Message (try: Attack!, Heal, Help...)">
+                    <input type="text" id="message" placeholder="Message (attack, heal, status...)">
                     <button onclick="sendComment()">Send</button>
+                </div>
+                <div class="quick-actions">
+                    <button class="quick-btn attack" onclick="quickAction('attack')">⚔️ Attack</button>
+                    <button class="quick-btn heal" onclick="quickAction('heal')">💚 Heal</button>
+                    <button class="quick-btn status" onclick="quickAction('status')">📊 Status</button>
                 </div>
             </div>
 
@@ -168,6 +307,7 @@
                 <div class="controls">
                     <button onclick="clearLog()">Clear Log</button>
                     <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
+                    <label><input type="checkbox" id="hideTicks"> Hide ticks</label>
                 </div>
                 <div class="event-log" id="eventLog"></div>
             </div>

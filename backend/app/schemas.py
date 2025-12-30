@@ -16,6 +16,13 @@ class EventType(str, Enum):
     TICK = "tick"
     SYSTEM = "system"
     ERROR = "error"
+    # RPG-specific events
+    ATTACK = "attack"
+    HEAL = "heal"
+    STATUS = "status"
+    BOSS_UPDATE = "boss_update"
+    BOSS_DEFEATED = "boss_defeated"
+    PLAYER_UPDATE = "player_update"
 
 
 class GameEvent(BaseModel):

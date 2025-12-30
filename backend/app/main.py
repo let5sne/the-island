@@ -5,9 +5,12 @@ Configures the application, WebSocket routes, and lifecycle events.
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .server import ConnectionManager
 from .engine import GameEngine
@@ -23,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Global instances
 manager = ConnectionManager()
 engine = GameEngine(manager)
+
+# Frontend path
+FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
 
 
 @asynccontextmanager
@@ -55,9 +61,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 async def root():
+    """Serve the debug client page."""
+    return FileResponse(FRONTEND_DIR / "debug_client.html")
+
+
+@app.get("/health")
+async def health():
     """Health check endpoint."""
     return {
         "status": "running",
@@ -100,3 +111,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+
+
+# Mount static files (must be after all routes)
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
