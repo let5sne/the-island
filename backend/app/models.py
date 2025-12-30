@@ -1,66 +1,81 @@
 """
-Game entity models for The Island.
-Defines Player and Boss data structures.
+SQLAlchemy ORM models for The Island.
+Defines User (viewers), Agent (NPCs), and WorldState entities.
 """
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, DateTime, func
+
+from .database import Base
 
 
-class Player(BaseModel):
+class User(Base):
     """
-    Represents a player in the game world.
+    Represents a viewer/donor from the live stream.
+    They can spend gold to influence the island.
     """
-    name: str
-    hp: int = Field(default=100, ge=0)
-    max_hp: int = Field(default=100, gt=0)
-    gold: int = Field(default=0, ge=0)
+    __tablename__ = "users"
 
-    def take_damage(self, amount: int) -> int:
-        """Apply damage to player, returns actual damage dealt."""
-        actual = min(amount, self.hp)
-        self.hp -= actual
-        return actual
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), unique=True, index=True, nullable=False)
+    gold = Column(Integer, default=100)  # Starting gold for new users
+    created_at = Column(DateTime, default=func.now())
 
-    def heal(self, amount: int) -> int:
-        """Heal player, returns actual HP restored."""
-        actual = min(amount, self.max_hp - self.hp)
-        self.hp += actual
-        return actual
-
-    def add_gold(self, amount: int) -> None:
-        """Add gold to player."""
-        self.gold += amount
-
-    @property
-    def is_alive(self) -> bool:
-        """Check if player is alive."""
-        return self.hp > 0
+    def __repr__(self):
+        return f"<User {self.username} gold={self.gold}>"
 
 
-class Boss(BaseModel):
+class Agent(Base):
     """
-    Represents a boss enemy in the game.
+    Represents an NPC survivor on the island.
+    Has personality, health, energy, and inventory.
     """
-    name: str
-    hp: int = Field(ge=0)
-    max_hp: int = Field(gt=0)
+    __tablename__ = "agents"
 
-    def take_damage(self, amount: int) -> int:
-        """Apply damage to boss, returns actual damage dealt."""
-        actual = min(amount, self.hp)
-        self.hp -= actual
-        return actual
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False)
+    personality = Column(String(50), nullable=False)
+    status = Column(String(20), default="Alive")  # Alive, Exiled, Dead
+    hp = Column(Integer, default=100)
+    energy = Column(Integer, default=100)
+    inventory = Column(String(500), default="{}")  # JSON string
 
-    def reset(self) -> None:
-        """Reset boss to full HP."""
-        self.hp = self.max_hp
+    def __repr__(self):
+        return f"<Agent {self.name} ({self.personality}) HP={self.hp} Energy={self.energy} Status={self.status}>"
 
-    @property
-    def is_alive(self) -> bool:
-        """Check if boss is alive."""
-        return self.hp > 0
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "personality": self.personality,
+            "status": self.status,
+            "hp": self.hp,
+            "energy": self.energy,
+            "inventory": self.inventory
+        }
 
-    @property
-    def hp_percentage(self) -> float:
-        """Get HP as percentage."""
-        return (self.hp / self.max_hp) * 100 if self.max_hp > 0 else 0
+
+class WorldState(Base):
+    """
+    Global state of the island environment.
+    Tracks day count, weather, and shared resources.
+    """
+    __tablename__ = "world_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    day_count = Column(Integer, default=1)
+    weather = Column(String(20), default="Sunny")
+    resource_level = Column(Integer, default=100)
+
+    def __repr__(self):
+        return f"<WorldState Day={self.day_count} Weather={self.weather} Resources={self.resource_level}>"
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "day_count": self.day_count,
+            "weather": self.weather,
+            "resource_level": self.resource_level
+        }

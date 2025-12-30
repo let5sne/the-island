@@ -1,17 +1,16 @@
 /**
- * The Island - Debug Client JavaScript
- * Handles WebSocket connection, UI interactions, and game state display
+ * The Island - Survival Simulation Client
+ * Handles WebSocket connection, agent display, and user interactions
  */
 
 let ws = null;
 const WS_URL = 'ws://localhost:8080/ws';
 
-// Player state (tracked from server events)
-let playerState = {
-    hp: 100,
-    maxHp: 100,
-    gold: 0
-};
+// User state
+let userGold = 100;
+
+// Agents state
+let agents = [];
 
 // DOM Elements
 const statusDot = document.getElementById('statusDot');
@@ -22,16 +21,8 @@ const usernameInput = document.getElementById('username');
 const messageInput = document.getElementById('message');
 const autoScrollCheckbox = document.getElementById('autoScroll');
 const hideTicksCheckbox = document.getElementById('hideTicks');
-
-// Boss UI Elements
-const bossName = document.getElementById('bossName');
-const bossHpText = document.getElementById('bossHpText');
-const bossHealthBar = document.getElementById('bossHealthBar');
-const bossHealthLabel = document.getElementById('bossHealthLabel');
-
-// Player UI Elements
-const playerHpDisplay = document.getElementById('playerHp');
-const playerGoldDisplay = document.getElementById('playerGold');
+const agentsGrid = document.getElementById('agentsGrid');
+const userGoldDisplay = document.getElementById('userGold');
 
 /**
  * Toggle WebSocket connection
@@ -48,30 +39,30 @@ function toggleConnection() {
  * Establish WebSocket connection
  */
 function connect() {
-    statusText.textContent = 'Connecting...';
+    statusText.textContent = '连接中...';
     connectBtn.disabled = true;
 
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
         statusDot.classList.add('connected');
-        statusText.textContent = 'Connected';
-        connectBtn.textContent = 'Disconnect';
+        statusText.textContent = '已连接';
+        connectBtn.textContent = '断开';
         connectBtn.disabled = false;
-        logEvent({ event_type: 'system', data: { message: 'WebSocket connected' } });
+        logEvent({ event_type: 'system', data: { message: '已连接到荒岛服务器' } });
     };
 
     ws.onclose = () => {
         statusDot.classList.remove('connected');
-        statusText.textContent = 'Disconnected';
-        connectBtn.textContent = 'Connect';
+        statusText.textContent = '未连接';
+        connectBtn.textContent = '连接';
         connectBtn.disabled = false;
-        logEvent({ event_type: 'system', data: { message: 'WebSocket disconnected' } });
+        logEvent({ event_type: 'system', data: { message: '与服务器断开连接' } });
     };
 
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        logEvent({ event_type: 'error', data: { message: 'Connection error' } });
+        logEvent({ event_type: 'error', data: { message: '连接错误' } });
     };
 
     ws.onmessage = (event) => {
@@ -91,122 +82,123 @@ function handleGameEvent(event) {
     const eventType = event.event_type;
     const data = event.data || {};
 
-    // Update UI based on event type
     switch (eventType) {
-        case 'boss_update':
-            updateBossUI(data);
+        case 'agents_update':
+            updateAgentsUI(data.agents);
             break;
-        case 'attack':
-            updateBossFromAttack(data);
-            updatePlayerFromEvent(data);
+        case 'feed':
+        case 'user_update':
+            updateUserGold(data);
             break;
-        case 'heal':
-            updatePlayerFromEvent(data);
-            break;
-        case 'status':
-            updatePlayerFromEvent(data);
-            updateBossFromStatus(data);
-            break;
-        case 'system':
-            // Handle player death/respawn updates
-            if (data.user && data.player_hp !== undefined) {
-                updatePlayerFromEvent(data);
-            }
-            break;
-        case 'tick':
-            if (data.boss_hp !== undefined) {
-                updateBossUI({
-                    boss_hp: data.boss_hp,
-                    boss_max_hp: data.boss_max_hp
-                });
+        case 'check':
+            if (data.user && data.user.username === getCurrentUser()) {
+                userGold = data.user.gold;
+                userGoldDisplay.textContent = userGold;
             }
             break;
     }
 
-    // Log the event
     logEvent(event);
 }
 
 /**
- * Update Boss health bar UI
+ * Get current username
  */
-function updateBossUI(data) {
-    if (data.boss_name) {
-        bossName.textContent = data.boss_name;
+function getCurrentUser() {
+    return usernameInput.value.trim() || '观众001';
+}
+
+/**
+ * Update user gold display
+ */
+function updateUserGold(data) {
+    if (data.user === getCurrentUser() && data.gold !== undefined) {
+        userGold = data.gold;
+        userGoldDisplay.textContent = userGold;
     }
-    if (data.boss_hp !== undefined && data.boss_max_hp !== undefined) {
-        const hp = data.boss_hp;
-        const maxHp = data.boss_max_hp;
-        const percentage = maxHp > 0 ? (hp / maxHp) * 100 : 0;
-
-        bossHpText.textContent = `HP: ${hp} / ${maxHp}`;
-        bossHealthBar.style.width = `${percentage}%`;
-        bossHealthLabel.textContent = `${Math.round(percentage)}%`;
-
-        // Change color based on HP percentage
-        if (percentage <= 25) {
-            bossHealthBar.style.background = 'linear-gradient(90deg, #ff2222 0%, #ff4444 100%)';
-        } else if (percentage <= 50) {
-            bossHealthBar.style.background = 'linear-gradient(90deg, #ff6600 0%, #ff8844 100%)';
-        } else {
-            bossHealthBar.style.background = 'linear-gradient(90deg, #ff4444 0%, #ff6666 100%)';
-        }
+    if (data.user_gold !== undefined && data.user === getCurrentUser()) {
+        userGold = data.user_gold;
+        userGoldDisplay.textContent = userGold;
     }
 }
 
 /**
- * Update boss from attack event
+ * Update agents UI with card view
  */
-function updateBossFromAttack(data) {
-    if (data.boss_hp !== undefined && data.boss_max_hp !== undefined) {
-        updateBossUI({
-            boss_hp: data.boss_hp,
-            boss_max_hp: data.boss_max_hp
-        });
-    }
+function updateAgentsUI(agentsData) {
+    if (!agentsData || agentsData.length === 0) return;
+
+    agents = agentsData;
+    agentsGrid.innerHTML = '';
+
+    agents.forEach(agent => {
+        const card = createAgentCard(agent);
+        agentsGrid.appendChild(card);
+    });
 }
 
 /**
- * Update boss from status event
+ * Create an agent card element
  */
-function updateBossFromStatus(data) {
-    if (data.boss_hp !== undefined && data.boss_max_hp !== undefined) {
-        updateBossUI({
-            boss_name: data.boss_name,
-            boss_hp: data.boss_hp,
-            boss_max_hp: data.boss_max_hp
-        });
-    }
+function createAgentCard(agent) {
+    const isDead = agent.status !== 'Alive';
+    const card = document.createElement('div');
+    card.className = `agent-card ${isDead ? 'dead' : ''}`;
+    card.id = `agent-${agent.id}`;
+
+    const statusClass = isDead ? 'dead' : 'alive';
+    const statusText = isDead ? '已死亡' : '存活';
+
+    card.innerHTML = `
+        <div class="agent-header">
+            <div>
+                <span class="agent-name">${agent.name}</span>
+                <span class="agent-personality">${agent.personality}</span>
+            </div>
+            <span class="agent-status ${statusClass}">${statusText}</span>
+        </div>
+        <div class="stat-bar-container">
+            <div class="stat-bar-label">
+                <span>❤️ 生命值</span>
+                <span>${agent.hp}/100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill hp" style="width: ${agent.hp}%"></div>
+            </div>
+        </div>
+        <div class="stat-bar-container">
+            <div class="stat-bar-label">
+                <span>⚡ 体力</span>
+                <span>${agent.energy}/100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill energy" style="width: ${agent.energy}%"></div>
+            </div>
+        </div>
+        <button class="feed-btn" onclick="feedAgent('${agent.name}')" ${isDead ? 'disabled' : ''}>
+            🍖 投喂 (10金币)
+        </button>
+    `;
+
+    return card;
 }
 
 /**
- * Update player stats from event data
+ * Feed an agent
  */
-function updatePlayerFromEvent(data) {
-    const currentUser = usernameInput.value.trim() || 'Anonymous';
-
-    // Only update if this event is for the current user
-    if (data.user !== currentUser) return;
-
-    if (data.player_hp !== undefined) {
-        playerState.hp = data.player_hp;
-    }
-    if (data.player_max_hp !== undefined) {
-        playerState.maxHp = data.player_max_hp;
-    }
-    if (data.player_gold !== undefined) {
-        playerState.gold = data.player_gold;
+function feedAgent(agentName) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert('未连接到服务器');
+        return;
     }
 
-    updatePlayerUI();
-}
+    const user = getCurrentUser();
+    const payload = {
+        action: 'send_comment',
+        payload: { user, message: `feed ${agentName}` }
+    };
 
-/**
- * Update player stats UI
- */
-function updatePlayerUI() {
-    playerHpDisplay.textContent = `${playerState.hp}/${playerState.maxHp}`;
-    playerGoldDisplay.textContent = playerState.gold;
+    ws.send(JSON.stringify(payload));
 }
 
 /**
@@ -214,15 +206,15 @@ function updatePlayerUI() {
  */
 function sendComment() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-        alert('Not connected to server');
+        alert('未连接到服务器');
         return;
     }
 
-    const user = usernameInput.value.trim() || 'Anonymous';
+    const user = getCurrentUser();
     const message = messageInput.value.trim();
 
     if (!message) {
-        alert('Please enter a message');
+        alert('请输入指令');
         return;
     }
 
@@ -233,25 +225,6 @@ function sendComment() {
 
     ws.send(JSON.stringify(payload));
     messageInput.value = '';
-}
-
-/**
- * Quick action buttons
- */
-function quickAction(action) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        alert('Not connected to server');
-        return;
-    }
-
-    const user = usernameInput.value.trim() || 'Anonymous';
-
-    const payload = {
-        action: 'send_comment',
-        payload: { user, message: action }
-    };
-
-    ws.send(JSON.stringify(payload));
 }
 
 /**
@@ -269,20 +242,18 @@ function formatEventData(eventType, data) {
     switch (eventType) {
         case 'comment':
             return `${data.user}: ${data.message}`;
-        case 'agent_response':
-            return data.response;
         case 'tick':
-            return `Tick #${data.tick} | Players: ${data.player_count || 0}`;
+            return `Tick #${data.tick} | 第${data.day}天 | 存活: ${data.alive_agents}人`;
         case 'system':
         case 'error':
+        case 'feed':
+        case 'agent_died':
+        case 'check':
             return data.message;
-        case 'attack':
-        case 'heal':
-        case 'status':
-        case 'boss_defeated':
-            return data.message;
-        case 'boss_update':
-            return `Boss ${data.boss_name}: ${data.boss_hp}/${data.boss_max_hp} (${Math.round(data.boss_hp_percentage)}%)`;
+        case 'agents_update':
+            return `角色状态已更新`;
+        case 'user_update':
+            return `${data.user} 金币: ${data.gold}`;
         default:
             return JSON.stringify(data);
     }
@@ -301,8 +272,8 @@ function logEvent(event) {
         return;
     }
 
-    // Skip boss_update events to reduce log noise (they're reflected in the UI)
-    if (eventType === 'boss_update') {
+    // Skip agents_update to reduce noise
+    if (eventType === 'agents_update') {
         return;
     }
 

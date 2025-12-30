@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Island - Debug Client</title>
+    <title>荒岛：人性的试炼</title>
     <style>
         * {
             box-sizing: border-box;
@@ -12,20 +12,26 @@
         }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            background: linear-gradient(135deg, #1a2a1a 0%, #0d1f0d 100%);
             color: #eee;
             min-height: 100vh;
             padding: 20px;
         }
         .container {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
         }
         h1 {
             text-align: center;
+            margin-bottom: 10px;
+            color: #88cc88;
+            text-shadow: 0 0 10px rgba(136, 204, 136, 0.5);
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
             margin-bottom: 20px;
-            color: #00d4ff;
-            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+            font-size: 0.9rem;
         }
         .status-bar {
             display: flex;
@@ -52,87 +58,129 @@
             box-shadow: 0 0 10px rgba(68, 255, 68, 0.5);
         }
 
-        /* Boss Health Bar */
-        .boss-panel {
-            background: rgba(255, 68, 68, 0.1);
-            border: 1px solid rgba(255, 68, 68, 0.3);
+        /* User Stats */
+        .user-panel {
+            background: rgba(136, 204, 136, 0.1);
+            border: 1px solid rgba(136, 204, 136, 0.3);
             border-radius: 12px;
-            padding: 20px;
+            padding: 15px 20px;
             margin-bottom: 20px;
-        }
-        .boss-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
         }
-        .boss-name {
-            color: #ff6666;
-            font-size: 1.3rem;
-            font-weight: bold;
-        }
-        .boss-hp-text {
-            color: #ffaaaa;
-            font-size: 0.9rem;
-        }
-        .health-bar-container {
-            width: 100%;
-            height: 30px;
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 15px;
-            overflow: hidden;
-            position: relative;
-        }
-        .health-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #ff4444 0%, #ff6666 100%);
-            border-radius: 15px;
-            transition: width 0.3s ease;
-        }
-        .health-bar-label {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-weight: bold;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-        }
-
-        /* Player Stats Panel */
-        .player-panel {
-            background: rgba(0, 212, 255, 0.1);
-            border: 1px solid rgba(0, 212, 255, 0.3);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .player-header {
-            color: #00d4ff;
-            font-size: 1.1rem;
-            margin-bottom: 15px;
-        }
-        .player-stats {
-            display: flex;
-            gap: 30px;
-            flex-wrap: wrap;
-        }
-        .stat-item {
+        .user-info {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 20px;
         }
-        .stat-icon {
-            font-size: 1.5rem;
+        .gold-display {
+            font-size: 1.3rem;
+            color: #ffd700;
         }
-        .stat-value {
+
+        /* Agent Cards */
+        .agents-section {
+            margin-bottom: 20px;
+        }
+        .section-title {
+            color: #88cc88;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+        }
+        .agent-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+        .agent-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+        }
+        .agent-card.dead {
+            opacity: 0.5;
+            filter: grayscale(80%);
+            border-color: #444;
+        }
+        .agent-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .agent-name {
             font-size: 1.2rem;
             font-weight: bold;
         }
-        .stat-label {
+        .agent-personality {
+            font-size: 0.85rem;
+            color: #aaa;
+            background: rgba(255,255,255,0.1);
+            padding: 3px 10px;
+            border-radius: 10px;
+        }
+        .agent-status {
             font-size: 0.8rem;
+            padding: 3px 8px;
+            border-radius: 8px;
+        }
+        .agent-status.alive { background: rgba(68, 255, 68, 0.2); color: #88ff88; }
+        .agent-status.dead { background: rgba(255, 68, 68, 0.2); color: #ff8888; }
+
+        /* Stat Bars */
+        .stat-bar-container {
+            margin-bottom: 10px;
+        }
+        .stat-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        .stat-bar {
+            height: 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .stat-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.3s ease;
+        }
+        .stat-bar-fill.hp { background: linear-gradient(90deg, #ff4444, #ff6666); }
+        .stat-bar-fill.energy { background: linear-gradient(90deg, #ffaa00, #ffcc44); }
+
+        /* Feed Button */
+        .feed-btn {
+            width: 100%;
+            margin-top: 10px;
+            padding: 8px;
+            background: #88cc88;
+            color: #1a2a1a;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .feed-btn:hover {
+            background: #66aa66;
+        }
+        .feed-btn:disabled {
+            background: #444;
             color: #888;
+            cursor: not-allowed;
         }
 
+        /* Panels */
         .panels {
             display: flex;
             flex-direction: column;
@@ -145,7 +193,7 @@
             padding: 20px;
         }
         .panel h2 {
-            color: #00d4ff;
+            color: #88cc88;
             margin-bottom: 15px;
             font-size: 1.1rem;
         }
@@ -166,39 +214,26 @@
         }
         input[type="text"]:focus {
             outline: none;
-            border-color: #00d4ff;
+            border-color: #88cc88;
         }
         button {
             padding: 10px 20px;
             border: none;
             border-radius: 6px;
-            background: #00d4ff;
-            color: #1a1a2e;
+            background: #88cc88;
+            color: #1a2a1a;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.2s;
         }
         button:hover {
-            background: #00b8e6;
+            background: #66aa66;
             transform: translateY(-1px);
         }
         button:disabled {
-            background: #666;
+            background: #444;
             cursor: not-allowed;
         }
-        .quick-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-            flex-wrap: wrap;
-        }
-        .quick-btn {
-            padding: 8px 16px;
-            font-size: 13px;
-        }
-        .quick-btn.attack { background: #ff6666; }
-        .quick-btn.heal { background: #44ff88; }
-        .quick-btn.status { background: #ffaa44; }
         .controls {
             display: flex;
             gap: 15px;
@@ -212,7 +247,7 @@
             font-size: 14px;
         }
         .event-log {
-            height: 350px;
+            height: 300px;
             overflow-y: auto;
             background: rgba(0, 0, 0, 0.4);
             border-radius: 8px;
@@ -226,17 +261,13 @@
             border-radius: 6px;
             border-left: 3px solid;
         }
-        .event.comment { border-color: #ffaa00; background: rgba(255, 170, 0, 0.1); }
-        .event.agent_response { border-color: #00ff88; background: rgba(0, 255, 136, 0.1); }
-        .event.tick { border-color: #888; background: rgba(136, 136, 136, 0.05); opacity: 0.6; }
-        .event.system { border-color: #00d4ff; background: rgba(0, 212, 255, 0.1); }
+        .event.comment { border-color: #888; background: rgba(136, 136, 136, 0.1); }
+        .event.tick { border-color: #444; background: rgba(68, 68, 68, 0.05); opacity: 0.6; }
+        .event.system { border-color: #88cc88; background: rgba(136, 204, 136, 0.1); }
         .event.error { border-color: #ff4444; background: rgba(255, 68, 68, 0.1); }
-        /* RPG Event Styles */
-        .event.attack { border-color: #ff4444; background: rgba(255, 68, 68, 0.15); color: #ff8888; }
-        .event.heal { border-color: #44ff88; background: rgba(68, 255, 136, 0.15); color: #88ffaa; }
-        .event.status { border-color: #ffaa44; background: rgba(255, 170, 68, 0.1); }
-        .event.boss_update { border-color: #ff6666; background: rgba(255, 102, 102, 0.1); }
-        .event.boss_defeated { border-color: #ffdd00; background: rgba(255, 221, 0, 0.2); color: #ffee88; font-weight: bold; }
+        .event.feed { border-color: #ffaa00; background: rgba(255, 170, 0, 0.1); color: #ffcc66; }
+        .event.agent_died { border-color: #ff4444; background: rgba(255, 68, 68, 0.15); color: #ff8888; }
+        .event.check { border-color: #88cc88; background: rgba(136, 204, 136, 0.1); }
         .event-time { color: #888; font-size: 11px; }
         .event-type { font-weight: bold; text-transform: uppercase; font-size: 11px; }
         .event-data { margin-top: 5px; }
@@ -244,70 +275,57 @@
 </head>
 <body>
     <div class="container">
-        <h1>The Island - Debug Client</h1>
+        <h1>荒岛：人性的试炼</h1>
+        <p class="subtitle">The Island: Trial of Humanity</p>
 
         <div class="status-bar">
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Disconnected</span>
+                <span id="statusText">未连接</span>
             </div>
-            <button id="connectBtn" onclick="toggleConnection()">Connect</button>
+            <button id="connectBtn" onclick="toggleConnection()">连接</button>
         </div>
 
-        <!-- Boss Health Panel -->
-        <div class="boss-panel">
-            <div class="boss-header">
-                <span class="boss-name" id="bossName">Dragon</span>
-                <span class="boss-hp-text" id="bossHpText">HP: 1000 / 1000</span>
+        <!-- User Panel -->
+        <div class="user-panel">
+            <div class="user-info">
+                <span>玩家:</span>
+                <input type="text" id="username" value="观众001" style="width: 120px;">
             </div>
-            <div class="health-bar-container">
-                <div class="health-bar" id="bossHealthBar" style="width: 100%"></div>
-                <span class="health-bar-label" id="bossHealthLabel">100%</span>
+            <div class="gold-display">
+                💰 <span id="userGold">100</span> 金币
             </div>
         </div>
 
-        <!-- Player Stats Panel -->
-        <div class="player-panel">
-            <div class="player-header">Your Stats</div>
-            <div class="player-stats">
-                <div class="stat-item">
-                    <span class="stat-icon">❤️</span>
-                    <div>
-                        <div class="stat-value" id="playerHp">100/100</div>
-                        <div class="stat-label">HP</div>
-                    </div>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-icon">💰</span>
-                    <div>
-                        <div class="stat-value" id="playerGold">0</div>
-                        <div class="stat-label">Gold</div>
-                    </div>
+        <!-- Agents Section -->
+        <div class="agents-section">
+            <h2 class="section-title">岛上幸存者</h2>
+            <div class="agents-grid" id="agentsGrid">
+                <!-- Agent cards will be dynamically generated -->
+                <div class="agent-card" id="agent-loading">
+                    <p style="text-align: center; color: #666;">等待连接...</p>
                 </div>
             </div>
         </div>
 
         <div class="panels">
             <div class="panel">
-                <h2>Send Command</h2>
+                <h2>发送指令</h2>
                 <div class="input-group">
-                    <input type="text" id="username" placeholder="Username" value="TestUser">
-                    <input type="text" id="message" placeholder="Message (attack, heal, status...)">
-                    <button onclick="sendComment()">Send</button>
+                    <input type="text" id="message" placeholder="输入指令 (feed Jack, check, 查询...)">
+                    <button onclick="sendComment()">发送</button>
                 </div>
-                <div class="quick-actions">
-                    <button class="quick-btn attack" onclick="quickAction('attack')">⚔️ Attack</button>
-                    <button class="quick-btn heal" onclick="quickAction('heal')">💚 Heal</button>
-                    <button class="quick-btn status" onclick="quickAction('status')">📊 Status</button>
-                </div>
+                <p style="margin-top: 10px; font-size: 0.85rem; color: #888;">
+                    指令: <code>feed [名字]</code> - 投喂角色 (消耗10金币) | <code>check</code> - 查询状态
+                </p>
             </div>
 
             <div class="panel">
-                <h2>Event Log</h2>
+                <h2>事件日志</h2>
                 <div class="controls">
-                    <button onclick="clearLog()">Clear Log</button>
-                    <label><input type="checkbox" id="autoScroll" checked> Auto-scroll</label>
-                    <label><input type="checkbox" id="hideTicks"> Hide ticks</label>
+                    <button onclick="clearLog()">清空</button>
+                    <label><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+                    <label><input type="checkbox" id="hideTicks" checked> 隐藏 Tick</label>
                 </div>
                 <div class="event-log" id="eventLog"></div>
             </div>

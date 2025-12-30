@@ -12,17 +12,16 @@ import time
 class EventType(str, Enum):
     """Enumeration of all possible game event types."""
     COMMENT = "comment"
-    AGENT_RESPONSE = "agent_response"
     TICK = "tick"
     SYSTEM = "system"
     ERROR = "error"
-    # RPG-specific events
-    ATTACK = "attack"
-    HEAL = "heal"
-    STATUS = "status"
-    BOSS_UPDATE = "boss_update"
-    BOSS_DEFEATED = "boss_defeated"
-    PLAYER_UPDATE = "player_update"
+    # Island survival events
+    AGENTS_UPDATE = "agents_update"      # All agents status broadcast
+    AGENT_DIED = "agent_died"            # An agent has died
+    FEED = "feed"                        # User fed an agent
+    USER_UPDATE = "user_update"          # User gold/status update
+    WORLD_UPDATE = "world_update"        # World state update
+    CHECK = "check"                      # Status check response
 
 
 class GameEvent(BaseModel):
