@@ -16,6 +16,7 @@ Configuration:
 - LLM_MODEL: Model to use (default: gpt-3.5-turbo)
 - LLM_API_BASE: Custom API base URL (for self-hosted or proxy services)
 - LLM_API_KEY: Generic API key (used with LLM_API_BASE)
+- LLM_API_KEY_HEADER: Custom header name for API key (default: none, uses provider default)
 - LLM_MOCK_MODE: Set to "true" to force mock mode
 """
 
@@ -73,8 +74,15 @@ class LLMService:
         self._model = os.environ.get("LLM_MODEL", DEFAULT_MODEL)
         self._api_base = os.environ.get("LLM_API_BASE")  # Custom base URL
         self._api_key = os.environ.get("LLM_API_KEY")    # Generic API key
+        self._api_key_header = os.environ.get("LLM_API_KEY_HEADER")  # Custom header name
         self._mock_mode = os.environ.get("LLM_MOCK_MODE", "").lower() == "true"
         self._acompletion = None
+        self._extra_headers = {}
+
+        # Build extra headers if custom API key header is specified
+        if self._api_key_header and self._api_key:
+            self._extra_headers[self._api_key_header] = self._api_key
+            logger.info(f"Using custom API key header: {self._api_key_header}")
 
         if self._mock_mode:
             logger.info("LLMService running in MOCK mode (forced by LLM_MOCK_MODE)")
@@ -188,8 +196,11 @@ class LLMService:
             }
             if self._api_base:
                 kwargs["api_base"] = self._api_base
-            if self._api_key:
+            if self._api_key and not self._api_key_header:
+                # Only pass api_key if not using custom header
                 kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
 
             response = await self._acompletion(**kwargs)
 
@@ -248,8 +259,11 @@ class LLMService:
             }
             if self._api_base:
                 kwargs["api_base"] = self._api_base
-            if self._api_key:
+            if self._api_key and not self._api_key_header:
+                # Only pass api_key if not using custom header
                 kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
 
             response = await self._acompletion(**kwargs)
 
