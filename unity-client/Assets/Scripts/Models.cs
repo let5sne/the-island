@@ -362,6 +362,15 @@ namespace TheIsland.Models
 
         // Phase 8: VFX
         public const string VFX_EVENT = "vfx_event";
+
+        // AI Director & Narrative Voting (Phase 9)
+        public const string MODE_CHANGE = "mode_change";
+        public const string NARRATIVE_PLOT = "narrative_plot";
+        public const string VOTE_STARTED = "vote_started";
+        public const string VOTE_UPDATE = "vote_update";
+        public const string VOTE_ENDED = "vote_ended";
+        public const string VOTE_RESULT = "vote_result";
+        public const string RESOLUTION_APPLIED = "resolution_applied";
     }
 
     /// <summary>
@@ -448,5 +457,109 @@ namespace TheIsland.Models
         public string effect;    // "gold_rain", "heart", "food"
         public int target_id;    // Optional: if -1 or 0, might mean global or specific position logic
         public string message;
+    }
+
+    // =========================================================================
+    // AI Director & Narrative Voting (Phase 9)
+    // =========================================================================
+
+    /// <summary>
+    /// Mode change event data.
+    /// </summary>
+    [Serializable]
+    public class ModeChangeData
+    {
+        public string mode;      // "simulation", "narrative", "voting", "resolution"
+        public string old_mode;
+        public string message;
+        public double ends_at;   // Timestamp when this mode ends (for voting)
+    }
+
+    /// <summary>
+    /// Choice option in a plot point.
+    /// </summary>
+    [Serializable]
+    public class PlotChoiceData
+    {
+        public string choice_id;
+        public string text;
+    }
+
+    /// <summary>
+    /// Narrative plot event data.
+    /// </summary>
+    [Serializable]
+    public class NarrativePlotData
+    {
+        public string plot_id;
+        public string title;
+        public string description;
+        public List<PlotChoiceData> choices;
+        public int ttl_seconds;
+    }
+
+    /// <summary>
+    /// Vote started event data.
+    /// </summary>
+    [Serializable]
+    public class VoteStartedData
+    {
+        public string vote_id;
+        public List<PlotChoiceData> choices;
+        public int duration_seconds;
+        public double ends_at;
+        public string source;
+    }
+
+    /// <summary>
+    /// Real-time vote update data.
+    /// </summary>
+    [Serializable]
+    public class VoteUpdateData
+    {
+        public string vote_id;
+        public List<int> tallies;
+        public List<float> percentages;
+        public int total_votes;
+        public float remaining_seconds;
+        public double ends_at;
+    }
+
+    /// <summary>
+    /// Vote ended event data.
+    /// </summary>
+    [Serializable]
+    public class VoteEndedData
+    {
+        public string vote_id;
+        public int total_votes;
+    }
+
+    /// <summary>
+    /// Final voting result data.
+    /// </summary>
+    [Serializable]
+    public class VoteResultData
+    {
+        public string vote_id;
+        public string winning_choice_id;
+        public string winning_choice_text;
+        public int winning_index;
+        public List<int> tallies;
+        public List<float> percentages;
+        public int total_votes;
+        public bool is_tie;
+    }
+
+    /// <summary>
+    /// Resolution applied event data.
+    /// </summary>
+    [Serializable]
+    public class ResolutionAppliedData
+    {
+        public string plot_id;
+        public string choice_id;
+        public string message;
+        public string effects_json;
     }
 }

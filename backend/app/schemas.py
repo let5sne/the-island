@@ -66,6 +66,15 @@ class EventType(str, Enum):
     VFX_EVENT = "vfx_event"              # Visual effect trigger
     GIFT_EFFECT = "gift_effect"          # Twitch bits/sub effect
 
+    # AI Director & Narrative Voting (Phase 9)
+    MODE_CHANGE = "mode_change"          # Game mode transition
+    NARRATIVE_PLOT = "narrative_plot"    # Director generated plot point
+    VOTE_STARTED = "vote_started"        # Voting session started
+    VOTE_UPDATE = "vote_update"          # Real-time vote count update
+    VOTE_ENDED = "vote_ended"            # Voting closed
+    VOTE_RESULT = "vote_result"          # Final voting result
+    RESOLUTION_APPLIED = "resolution_applied"  # Plot resolution executed
+
 
 class GameEvent(BaseModel):
     """

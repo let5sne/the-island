@@ -16,6 +16,8 @@ the-island/
 │       ├── llm.py           # LLM 集成 (对话生成)
 │       ├── memory_service.py # Agent 记忆管理服务
 │       ├── twitch_service.py # Twitch 聊天机器人
+│       ├── director_service.py # AI 导演服务 (叙事生成)
+│       ├── vote_manager.py  # 投票管理器
 │       └── database.py      # 数据库配置
 ├── frontend/          # Web 调试客户端
 │   ├── app.js           # JavaScript 客户端
@@ -43,6 +45,8 @@ the-island/
 - **社交角色**: 领导者、追随者、独行者动态关系
 - **记忆系统**: Agent 会记住重要的互动和事件
 - **随机事件**: 风暴破坏、发现宝藏、野兽袭击等
+- **AI 导演系统**: 自动生成剧情事件，观众投票决定剧情走向
+- **叙事投票**: Twitch 观众通过 `!1` `!2` 命令参与剧情决策
 
 ### 玩家命令
 | 命令 | 格式 | 金币消耗 | 效果 |
@@ -54,6 +58,8 @@ the-island/
 | revive | `revive <角色名>` | 10g | 复活死亡角色 |
 | check | `check` | 0g | 查看所有状态 |
 | reset | `reset` | 0g | 重置游戏 |
+| !1 / !A | `!1` 或 `!A` | 0g | 投票选择第一选项 |
+| !2 / !B | `!2` 或 `!B` | 0g | 投票选择第二选项 |
 
 ### AI 角色
 - **Jack** (勇敢) - 蓝色
@@ -123,6 +129,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | `EnvironmentManager.cs` | 环境场景 (沙滩、海洋、天空) |
 | `WeatherEffects.cs` | 天气粒子效果 (雨、雾、热浪) |
 | `Models.cs` | 数据模型 (Agent、WorldState、事件数据) |
+| `NarrativeUI.cs` | AI 导演叙事界面 (剧情卡片、投票进度条、倒计时) |
 
 ### 视觉特性
 - 程序化生成的 2.5D 角色精灵
@@ -178,6 +185,15 @@ AGENT_ACTION    # 角色执行行动 (采集/休息/社交等)
 CRAFT           # 制作物品 (药品等)
 USE_ITEM        # 使用物品
 RANDOM_EVENT    # 随机事件 (风暴/宝藏/野兽等)
+
+# AI 导演与叙事投票 (Phase 9)
+MODE_CHANGE         # 游戏模式切换 (simulation/narrative/voting/resolution)
+NARRATIVE_PLOT      # 导演生成的剧情事件
+VOTE_STARTED        # 投票开始
+VOTE_UPDATE         # 实时投票进度更新
+VOTE_ENDED          # 投票结束
+VOTE_RESULT         # 投票结果
+RESOLUTION_APPLIED  # 剧情决议执行
 ```
 
 ## Twitch 直播集成

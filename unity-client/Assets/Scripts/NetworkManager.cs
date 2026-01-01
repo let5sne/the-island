@@ -75,6 +75,15 @@ namespace TheIsland.Network
         public event Action<GiveItemEventData> OnGiveItem;  // Phase 23: Item Exchange
         public event Action<GroupActivityEventData> OnGroupActivity; // Phase 24: Group Activities
         public event Action<VFXEventData> OnVFXEvent; // Phase 8: VFX
+
+        // AI Director & Narrative Voting (Phase 9)
+        public event Action<ModeChangeData> OnModeChange;
+        public event Action<NarrativePlotData> OnNarrativePlot;
+        public event Action<VoteStartedData> OnVoteStarted;
+        public event Action<VoteUpdateData> OnVoteUpdate;
+        public event Action<VoteEndedData> OnVoteEnded;
+        public event Action<VoteResultData> OnVoteResult;
+        public event Action<ResolutionAppliedData> OnResolutionApplied;
         #endregion
 
         #region Private Fields
@@ -380,8 +389,6 @@ namespace TheIsland.Network
                         var randomEventData = JsonUtility.FromJson<RandomEventData>(dataJson);
                         OnRandomEvent?.Invoke(randomEventData);
                         Debug.Log($"[Random Event] {randomEventData.event_type}: {randomEventData.message}");
-                        OnRandomEvent?.Invoke(randomEventData);
-                        Debug.Log($"[Random Event] {randomEventData.event_type}: {randomEventData.message}");
                         break;
 
                     case EventTypes.GIVE_ITEM:
@@ -397,6 +404,42 @@ namespace TheIsland.Network
                     case EventTypes.VFX_EVENT:
                         var vfxData = JsonUtility.FromJson<VFXEventData>(dataJson);
                         OnVFXEvent?.Invoke(vfxData);
+                        break;
+
+                    // AI Director & Narrative Voting (Phase 9)
+                    case EventTypes.MODE_CHANGE:
+                        var modeData = JsonUtility.FromJson<ModeChangeData>(dataJson);
+                        OnModeChange?.Invoke(modeData);
+                        break;
+
+                    case EventTypes.NARRATIVE_PLOT:
+                        var plotData = JsonUtility.FromJson<NarrativePlotData>(dataJson);
+                        OnNarrativePlot?.Invoke(plotData);
+                        break;
+
+                    case EventTypes.VOTE_STARTED:
+                        var voteStarted = JsonUtility.FromJson<VoteStartedData>(dataJson);
+                        OnVoteStarted?.Invoke(voteStarted);
+                        break;
+
+                    case EventTypes.VOTE_UPDATE:
+                        var voteUpdate = JsonUtility.FromJson<VoteUpdateData>(dataJson);
+                        OnVoteUpdate?.Invoke(voteUpdate);
+                        break;
+
+                    case EventTypes.VOTE_ENDED:
+                        var voteEnded = JsonUtility.FromJson<VoteEndedData>(dataJson);
+                        OnVoteEnded?.Invoke(voteEnded);
+                        break;
+
+                    case EventTypes.VOTE_RESULT:
+                        var voteResult = JsonUtility.FromJson<VoteResultData>(dataJson);
+                        OnVoteResult?.Invoke(voteResult);
+                        break;
+
+                    case EventTypes.RESOLUTION_APPLIED:
+                        var resolution = JsonUtility.FromJson<ResolutionAppliedData>(dataJson);
+                        OnResolutionApplied?.Invoke(resolution);
                         break;
 
                     default:

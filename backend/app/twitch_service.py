@@ -74,6 +74,18 @@ class TwitchBot(commands.Bot):
         # Log the message for debugging
         logger.info(f"Twitch chat [{username}]: {content}")
 
+        # Phase 9: Check for vote commands first (!1, !2, !A, !B)
+        vote_index = self._game_engine.parse_vote_command(content)
+        if vote_index is not None:
+            try:
+                voted = await self._game_engine.process_vote(username, vote_index, "twitch")
+                if voted:
+                    logger.info(f"Vote recorded: {username} -> option {vote_index + 1}")
+                return  # Don't process as regular command
+            except Exception as e:
+                logger.error(f"Error processing vote: {e}")
+                return
+
         # Forward to game engine for command processing
         try:
             await self._game_engine.process_command(username, content)

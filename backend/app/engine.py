@@ -15,6 +15,8 @@ from .database import init_db, get_db_session
 from .models import User, Agent, WorldState, GameConfig, AgentRelationship
 from .llm import llm_service
 from .memory_service import memory_service
+from .director_service import DirectorService, GameMode, PlotPoint
+from .vote_manager import VoteManager, VoteOption, VoteSnapshot
 
 if TYPE_CHECKING:
     from .server import ConnectionManager
@@ -56,6 +58,14 @@ REVIVE_COST = 10  # Casual mode cost
 
 INITIAL_USER_GOLD = 100
 IDLE_CHAT_PROBABILITY = 0.15
+
+# =============================================================================
+# AI Director & Narrative Voting (Phase 9)
+# =============================================================================
+DIRECTOR_TRIGGER_INTERVAL = 60  # Ticks between narrative events (5 minutes at 5s/tick)
+DIRECTOR_MIN_ALIVE_AGENTS = 2   # Minimum alive agents to trigger narrative
+VOTING_DURATION_SECONDS = 60    # Duration of voting window
+VOTE_BROADCAST_INTERVAL = 1.0   # How often to broadcast vote updates
 
 # =============================================================================
 # Day/Night cycle
@@ -135,6 +145,20 @@ class GameEngine:
         # Phase 22: Contextual Dialogue System
         # Key: agent_id (who needs to respond), Value: {partner_id, last_text, topic, expires_at_tick}
         self._active_conversations = {}
+
+        # Phase 9: AI Director & Narrative Voting
+        self._director = DirectorService()
+        self._vote_manager = VoteManager(
+            duration_seconds=VOTING_DURATION_SECONDS,
+            broadcast_interval=VOTE_BROADCAST_INTERVAL,
+        )
+        self._game_mode = GameMode.SIMULATION
+        self._last_narrative_tick = 0
+        self._current_plot: PlotPoint | None = None
+        self._mode_change_tick = 0  # Tick when mode changed
+
+        # Set up vote broadcast callback
+        self._vote_manager.set_broadcast_callback(self._on_vote_update)
 
     @property
     def is_running(self) -> bool:
@@ -249,6 +273,222 @@ class GameEngine:
             world = db.query(WorldState).first()
             if world:
                 await self._broadcast_event(EventType.WORLD_UPDATE, world.to_dict())
+
+    # =========================================================================
+    # AI Director & Narrative Voting (Phase 9)
+    # =========================================================================
+    async def _on_vote_update(self, snapshot: VoteSnapshot) -> None:
+        """Callback for broadcasting vote updates."""
+        await self._broadcast_event(EventType.VOTE_UPDATE, snapshot.to_dict())
+
+    async def _set_game_mode(self, new_mode: GameMode, message: str = "") -> None:
+        """Switch game mode and broadcast the change."""
+        old_mode = self._game_mode
+        self._game_mode = new_mode
+        self._mode_change_tick = self._tick_count
+
+        ends_at = 0.0
+        if new_mode == GameMode.VOTING:
+            session = self._vote_manager.current_session
+            if session:
+                ends_at = session.end_ts
+
+        await self._broadcast_event(EventType.MODE_CHANGE, {
+            "mode": new_mode.value,
+            "old_mode": old_mode.value,
+            "message": message,
+            "ends_at": ends_at,
+        })
+
+        logger.info(f"Game mode changed: {old_mode.value} -> {new_mode.value}")
+
+    def _get_world_state_for_director(self) -> dict:
+        """Build world state context for the Director."""
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+
+            alive_agents = [
+                {"name": a.name, "hp": a.hp, "energy": a.energy, "mood": a.mood}
+                for a in agents
+            ]
+
+            mood_avg = sum(a.mood for a in agents) / len(agents) if agents else 50
+
+            return {
+                "day": world.day_count if world else 1,
+                "weather": world.weather if world else "Sunny",
+                "time_of_day": world.time_of_day if world else "day",
+                "alive_agents": alive_agents,
+                "mood_avg": mood_avg,
+                "recent_events": [],  # Could be populated from event history
+                "tension_level": self._director.calculate_tension_level({
+                    "alive_agents": alive_agents,
+                    "weather": world.weather if world else "Sunny",
+                    "mood_avg": mood_avg,
+                }),
+            }
+
+    async def _should_trigger_narrative(self) -> bool:
+        """Check if conditions are met to trigger a narrative event."""
+        # Only trigger in simulation mode
+        if self._game_mode != GameMode.SIMULATION:
+            return False
+
+        # Check tick interval
+        ticks_since_last = self._tick_count - self._last_narrative_tick
+        if ticks_since_last < DIRECTOR_TRIGGER_INTERVAL:
+            return False
+
+        # Check minimum alive agents
+        with get_db_session() as db:
+            alive_count = db.query(Agent).filter(Agent.status == "Alive").count()
+            if alive_count < DIRECTOR_MIN_ALIVE_AGENTS:
+                return False
+
+        return True
+
+    async def _trigger_narrative_event(self) -> None:
+        """Trigger a narrative event from the Director."""
+        logger.info("Director triggering narrative event...")
+
+        # Switch to narrative mode
+        await self._set_game_mode(GameMode.NARRATIVE, "The Director intervenes...")
+
+        # Generate plot point
+        world_state = self._get_world_state_for_director()
+        plot = await self._director.generate_plot_point(world_state)
+        self._current_plot = plot
+        self._last_narrative_tick = self._tick_count
+
+        # Broadcast narrative event
+        await self._broadcast_event(EventType.NARRATIVE_PLOT, plot.to_dict())
+
+        logger.info(f"Narrative event: {plot.title}")
+
+        # Start voting session
+        options = [
+            VoteOption(choice_id=c.choice_id, text=c.text)
+            for c in plot.choices
+        ]
+        self._vote_manager.start_vote(options, duration_seconds=VOTING_DURATION_SECONDS)
+
+        # Broadcast vote started
+        vote_data = self._vote_manager.get_vote_started_data()
+        if vote_data:
+            await self._broadcast_event(EventType.VOTE_STARTED, vote_data)
+
+        # Switch to voting mode
+        await self._set_game_mode(
+            GameMode.VOTING,
+            f"Vote now! {plot.choices[0].text} or {plot.choices[1].text}"
+        )
+
+    async def _process_voting_tick(self) -> None:
+        """Process voting phase - check if voting has ended."""
+        if self._game_mode != GameMode.VOTING:
+            return
+
+        result = self._vote_manager.maybe_finalize()
+        if result:
+            # Voting ended
+            await self._broadcast_event(EventType.VOTE_ENDED, {
+                "vote_id": result.vote_id,
+                "total_votes": result.total_votes,
+            })
+            await self._broadcast_event(EventType.VOTE_RESULT, result.to_dict())
+
+            # Switch to resolution mode
+            await self._set_game_mode(
+                GameMode.RESOLUTION,
+                f"The audience has spoken: {result.winning_choice_text}"
+            )
+
+            # Process resolution
+            await self._process_vote_result(result)
+
+    async def _process_vote_result(self, result) -> None:
+        """Process the voting result and apply consequences."""
+        if not self._current_plot:
+            logger.error("No current plot for resolution")
+            await self._set_game_mode(GameMode.SIMULATION, "Returning to normal...")
+            return
+
+        # Get resolution from Director
+        world_state = self._get_world_state_for_director()
+        resolution = await self._director.resolve_vote(
+            plot_point=self._current_plot,
+            winning_choice_id=result.winning_choice_id,
+            world_state=world_state,
+        )
+
+        # Apply effects
+        await self._apply_resolution_effects(resolution.effects)
+
+        # Broadcast resolution
+        await self._broadcast_event(EventType.RESOLUTION_APPLIED, resolution.to_dict())
+
+        logger.info(f"Resolution applied: {resolution.message}")
+
+        # Clear current plot
+        self._director.clear_current_plot()
+        self._current_plot = None
+
+        # Return to simulation after a brief pause
+        await asyncio.sleep(3.0)  # Let players read the resolution
+        await self._set_game_mode(GameMode.SIMULATION, "The story continues...")
+
+    async def _apply_resolution_effects(self, effects: dict) -> None:
+        """Apply resolution effects to the game world."""
+        def _coerce_int(value) -> int:
+            """Safely convert LLM output (string/float/int) to int."""
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        mood_delta = _coerce_int(effects.get("mood_delta", 0))
+        hp_delta = _coerce_int(effects.get("hp_delta", 0))
+        energy_delta = _coerce_int(effects.get("energy_delta", 0))
+
+        if not any([mood_delta, hp_delta, energy_delta]):
+            return
+
+        with get_db_session() as db:
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            for agent in agents:
+                if mood_delta:
+                    agent.mood = max(0, min(100, agent.mood + mood_delta))
+                if hp_delta:
+                    agent.hp = max(0, min(100, agent.hp + hp_delta))
+                if energy_delta:
+                    agent.energy = max(0, min(100, agent.energy + energy_delta))
+
+        logger.info(
+            f"Applied resolution effects: mood={mood_delta}, "
+            f"hp={hp_delta}, energy={energy_delta}"
+        )
+
+    async def process_vote(self, voter_id: str, choice_index: int, source: str = "twitch") -> bool:
+        """
+        Process a vote from Twitch or Unity.
+
+        Args:
+            voter_id: Unique identifier for the voter
+            choice_index: 0-indexed choice number
+            source: Vote source ("twitch" or "unity")
+
+        Returns:
+            True if vote was recorded
+        """
+        if self._game_mode != GameMode.VOTING:
+            return False
+
+        return self._vote_manager.cast_vote(voter_id, choice_index, source)
+
+    def parse_vote_command(self, message: str) -> int | None:
+        """Parse a message for vote commands. Returns choice index or None."""
+        return self._vote_manager.parse_twitch_message(message)
 
     # =========================================================================
     # Day/Night cycle (Phase 2)
@@ -1702,6 +1942,20 @@ class GameEngine:
         while self._running:
             self._tick_count += 1
 
+            # Phase 9: Check voting phase (always runs)
+            await self._process_voting_tick()
+
+            # Phase 9: Check if we should trigger a narrative event
+            if await self._should_trigger_narrative():
+                await self._trigger_narrative_event()
+
+            # Skip simulation processing during narrative/voting/resolution modes
+            if self._game_mode != GameMode.SIMULATION:
+                await asyncio.sleep(self._tick_interval)
+                continue
+
+            # ========== SIMULATION MODE PROCESSING ==========
+
             # 1. Advance time (Phase 2)
             phase_change = await self._advance_time()
             if phase_change:
@@ -1774,7 +2028,8 @@ class GameEngine:
                 "day": day,
                 "time_of_day": time_of_day,
                 "weather": weather,
-                "alive_agents": alive_count
+                "alive_agents": alive_count,
+                "game_mode": self._game_mode.value  # Phase 9: Include game mode
             })
 
             await asyncio.sleep(self._tick_interval)
