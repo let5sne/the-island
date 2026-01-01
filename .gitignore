@@ -52,6 +52,9 @@ unity-client/*.mdb
 unity-client/*.opendb
 unity-client/*.VC.db
 
+# TextMesh Pro auto-generated font assets
+unity-client/Assets/TextMesh Pro/Resources/Fonts & Materials/
+
 # Serena AI
 .serena/
 unity-client/Assets/_Recovery/
