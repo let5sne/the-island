@@ -67,6 +67,7 @@ namespace TheIsland.Network
         public event Action<ReviveEventData> OnRevive;
         public event Action<SocialInteractionData> OnSocialInteraction;
         public event Action<WorldStateData> OnWorldUpdate;
+        public event Action<GiftEffectData> OnGiftEffect;  // Phase 8: Gift/Donation effects
         #endregion
 
         #region Private Fields
@@ -341,6 +342,11 @@ namespace TheIsland.Network
                     case EventTypes.SOCIAL_INTERACTION:
                         var socialData = JsonUtility.FromJson<SocialInteractionData>(dataJson);
                         OnSocialInteraction?.Invoke(socialData);
+                        break;
+
+                    case EventTypes.GIFT_EFFECT:
+                        var giftData = JsonUtility.FromJson<GiftEffectData>(dataJson);
+                        OnGiftEffect?.Invoke(giftData);
                         break;
 
                     case EventTypes.COMMENT:

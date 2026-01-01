@@ -56,6 +56,24 @@ MOCK_REACTIONS = {
         "My stomach is eating itself...",
         "Is this how it ends? Starving on a beach?",
     ],
+    "gratitude_arrogant": [
+        "Finally! A worthy tribute! {user}, you understand greatness!",
+        "About time someone recognized my value! Thanks, {user}!",
+        "Hmph, {user} knows quality when they see it. Much appreciated!",
+        "A gift for ME? Well, obviously. Thank you, {user}!",
+    ],
+    "gratitude_humble": [
+        "Oh my gosh, {user}! You're too kind! Thank you so much!",
+        "Wow, {user}, I don't deserve this! You're amazing!",
+        "*tears up* {user}... this means the world to me!",
+        "Thank you, thank you {user}! You're the best!",
+    ],
+    "gratitude_neutral": [
+        "Hey, thanks {user}! That's really generous of you!",
+        "Wow, {user}! Thank you so much for the support!",
+        "Appreciate it, {user}! You're awesome!",
+        "{user}, you're a legend! Thank you!",
+    ],
 }
 
 # Default model configuration
@@ -460,6 +478,92 @@ class LLMService:
         except Exception as e:
             logger.error(f"LLM API error for social interaction: {e}")
             return f"{initiator_name}: ...\n{target_name}: ..."
+
+    async def generate_gratitude(
+        self,
+        user: str,
+        amount: int,
+        agent_name: str = "Survivor",
+        agent_personality: str = "friendly",
+        gift_name: str = "bits"
+    ) -> str:
+        """
+        Generate a special gratitude response for donations/gifts.
+
+        Args:
+            user: Name of the user who gave the gift
+            amount: Amount of the gift
+            agent_name: Name of the agent (optional)
+            agent_personality: Personality of the agent (optional)
+            gift_name: Type of gift (bits, subscription, etc.)
+
+        Returns:
+            An excited, grateful response from the agent
+        """
+        personality = agent_personality.lower() if agent_personality else "friendly"
+
+
+        if self._mock_mode:
+            if "arrogant" in personality or "proud" in personality:
+                responses = MOCK_REACTIONS.get("gratitude_arrogant", [])
+            elif "humble" in personality or "shy" in personality or "kind" in personality:
+                responses = MOCK_REACTIONS.get("gratitude_humble", [])
+            else:
+                responses = MOCK_REACTIONS.get("gratitude_neutral", [])
+            
+            if responses:
+                return random.choice(responses).format(user=user, amount=amount)
+            return f"Thank you so much, {user}! You're amazing!"
+
+        try:
+            # Customize tone based on personality
+            if "arrogant" in personality or "proud" in personality:
+                tone_instruction = (
+                    "You are somewhat arrogant but still grateful. "
+                    "React with confident excitement, like 'Finally, a worthy tribute!' "
+                    "but still thank them."
+                )
+            elif "humble" in personality or "shy" in personality:
+                tone_instruction = (
+                    "You are humble and easily moved. "
+                    "React with overwhelming gratitude, maybe even get teary-eyed."
+                )
+            else:
+                tone_instruction = (
+                    "React with genuine excitement and gratitude."
+                )
+
+            system_prompt = (
+                f"You are {agent_name}, a survivor on a deserted island. "
+                f"Personality: {personality if personality else 'friendly'}. "
+                f"A wealthy patron named {user} just gave you {amount} {gift_name}! "
+                f"{tone_instruction} "
+                f"Respond with extreme excitement and gratitude (max 15 words). "
+                f"Keep it fun and energetic!"
+            )
+
+            kwargs = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"{user} just gave you {amount} {gift_name}! React!"}
+                ],
+                "max_tokens": 40,
+                "temperature": 0.95,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key and not self._api_key_header:
+                kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
+
+            response = await self._acompletion(**kwargs)
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"LLM API error for gratitude: {e}")
+            return f"Wow, thank you so much {user}! You're amazing!"
 
 
 # Global instance for easy import

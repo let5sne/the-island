@@ -241,6 +241,21 @@ namespace TheIsland.Models
     }
 
     /// <summary>
+    /// Gift effect event data (Twitch bits, subscriptions, etc.).
+    /// </summary>
+    [Serializable]
+    public class GiftEffectData
+    {
+        public string user;
+        public string gift_type;  // "bits", "heart", "sub"
+        public int value;
+        public string message;
+        public string agent_name;  // Target agent for the effect
+        public string gratitude;   // AI-generated thank you message
+        public float duration;     // How long to show the speech bubble (default 8s)
+    }
+
+    /// <summary>
     /// Client message structure for sending to server.
     /// </summary>
     [Serializable]
@@ -293,5 +308,8 @@ namespace TheIsland.Models
         public const string SOCIAL_INTERACTION = "social_interaction";
         public const string RELATIONSHIP_CHANGE = "relationship_change";
         public const string AUTO_REVIVE = "auto_revive";
+
+        // Gift/Donation system (Phase 8)
+        public const string GIFT_EFFECT = "gift_effect";
     }
 }

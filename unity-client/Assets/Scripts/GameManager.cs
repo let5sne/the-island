@@ -152,6 +152,7 @@ namespace TheIsland.Core
             network.OnTalk += HandleTalk;
             network.OnRevive += HandleRevive;
             network.OnSocialInteraction += HandleSocialInteraction;
+            network.OnGiftEffect += HandleGiftEffect;  // Phase 8
         }
 
         private void UnsubscribeFromNetworkEvents()
@@ -178,6 +179,7 @@ namespace TheIsland.Core
             network.OnTalk -= HandleTalk;
             network.OnRevive -= HandleRevive;
             network.OnSocialInteraction -= HandleSocialInteraction;
+            network.OnGiftEffect -= HandleGiftEffect;  // Phase 8
         }
         #endregion
 
@@ -484,6 +486,54 @@ namespace TheIsland.Core
             {
                 initiatorUI.ShowSpeech(data.dialogue);
             }
+        }
+
+        /// <summary>
+        /// Handle gift effect event (Twitch bits, subscriptions).
+        /// Plays VFX and shows gratitude speech.
+        /// </summary>
+        private void HandleGiftEffect(GiftEffectData data)
+        {
+            Debug.Log($"[GameManager] Gift: {data.user} sent {data.value} {data.gift_type}");
+
+            // Find target agent position for VFX
+            Vector3 effectPosition = Vector3.zero;
+            int agentId = GetAgentIdByName(data.agent_name);
+            
+            if (agentId >= 0 && _agentVisuals.TryGetValue(agentId, out AgentVisual agentVisual))
+            {
+                effectPosition = agentVisual.transform.position;
+
+                // Show gratitude speech with extended duration
+                if (!string.IsNullOrEmpty(data.gratitude))
+                {
+                    float duration = data.duration > 0 ? data.duration : 8f;
+                    agentVisual.ShowSpeech(data.gratitude, duration);
+                }
+            }
+            else if (agentId >= 0 && _agentUIs.TryGetValue(agentId, out AgentUI agentUI))
+            {
+                effectPosition = agentUI.transform.position;
+
+                if (!string.IsNullOrEmpty(data.gratitude))
+                {
+                    agentUI.ShowSpeech(data.gratitude);
+                }
+            }
+            else
+            {
+                // Default to center if no agent found
+                effectPosition = new Vector3(0, 1, 0);
+            }
+
+            // Play VFX
+            if (VFXManager.Instance != null)
+            {
+                VFXManager.Instance.PlayEffect(data.gift_type, effectPosition);
+            }
+
+            // Show notification
+            ShowNotification(data.message);
         }
         #endregion
 

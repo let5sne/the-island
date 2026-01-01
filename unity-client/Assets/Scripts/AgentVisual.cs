@@ -923,8 +923,14 @@ namespace TheIsland.Visual
         #region Speech
         public void ShowSpeech(string text)
         {
+            ShowSpeech(text, speechDuration);
+        }
+
+        public void ShowSpeech(string text, float duration)
+        {
             if (_speechBubble == null || !IsAlive) return;
 
+            _speechBubble.DisplayDuration = duration;
             _speechBubble.Setup(text);
             Debug.Log($"[AgentVisual] {_currentData?.name} says: \"{text}\"");
         }

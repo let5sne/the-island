@@ -7,6 +7,7 @@ Compatible with twitchio 2.x (IRC-based)
 
 import os
 import logging
+import random
 from typing import TYPE_CHECKING
 
 from twitchio.ext import commands
@@ -83,20 +84,19 @@ class TwitchBot(commands.Bot):
         if hasattr(message, 'tags') and message.tags:
             bits = message.tags.get('bits')
             if bits:
-                try:
-                    bits_amount = int(bits)
-                    logger.info(f"Received {bits_amount} bits from {username}")
-                    await self._game_engine.process_bits(username, bits_amount)
+                await self._handle_bits(username, int(bits))
 
-                    # Send special gift effect to Unity
-                    await self._game_engine._broadcast_event("gift_effect", {
-                        "type": "gift_effect",
-                        "user": username,
-                        "value": bits_amount,
-                        "message": f"{username} cheered {bits_amount} bits!"
-                    })
-                except (ValueError, TypeError) as e:
-                    logger.error(f"Error parsing bits amount: {e}")
+    async def _handle_bits(self, username: str, bits_amount: int):
+        """
+        Handle bits donation.
+        Delegates to game engine's unified gift handling.
+        """
+        try:
+            logger.info(f"Received {bits_amount} bits from {username}")
+            await self._game_engine.handle_gift(username, bits_amount, "bits")
+            
+        except Exception as e:
+            logger.error(f"Error handling bits: {e}")
 
     async def event_command_error(self, context, error):
         """Called when a command error occurs."""
@@ -110,3 +110,4 @@ class TwitchBot(commands.Bot):
         logger.error(f"Twitch bot error: {error}")
         if data:
             logger.debug(f"Error data: {data}")
+

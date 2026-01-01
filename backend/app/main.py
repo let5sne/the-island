@@ -140,6 +140,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 text = message.payload.get("message", "")
                 await engine.process_comment(user, text)
 
+            # Handle test gift action
+            elif message.action == "test_gift":
+                user = message.payload.get("user", "TestUser")
+                bits = int(message.payload.get("bits", 100))
+                # Trigger handle_gift in engine
+                await engine.handle_gift(user, bits, "bits")
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:

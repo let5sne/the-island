@@ -948,11 +948,17 @@ class GameEngine:
         # Use the existing process_comment method to handle commands
         await self.process_comment(user, text)
 
-    async def process_bits(self, user: str, amount: int) -> None:
-        """Process Twitch bits and convert to game gold."""
-        # 1 Bit = 1 Gold conversion rate
-        gold_added = amount
+    async def handle_gift(self, user: str, amount: int, gift_type: str = "bits") -> None:
+        """
+        Handle a gift/donation (bits, subscription, or test).
         
+        Args:
+            user: Name of the donor
+            amount: Value of the gift
+            gift_type: Type of gift (bits, test, etc.)
+        """
+        # 1. Add gold to user
+        gold_added = amount
         with get_db_session() as db:
             user_obj = self._get_or_create_user(db, user)
             user_obj.gold += gold_added
@@ -960,14 +966,38 @@ class GameEngine:
             await self._broadcast_event(EventType.USER_UPDATE, {
                 "user": user,
                 "gold": user_obj.gold,
-                "message": f"{user} received {gold_added} gold from {amount} bits!"
+                "message": f"{user} received {gold_added} gold!"
             })
-            
-            # Also broadcast a special bits event for UI effects
-            await self._broadcast_event("bits_received", {
-                "user": user,
-                "bits": amount,
-                "gold": gold_added
-            })
-            
-            logger.info(f"Processed bits: {user} -> {amount} bits -> {gold_added} gold")
+
+            # Check for alive agents for reaction
+            alive_agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            agent = random.choice(alive_agents) if alive_agents else None
+            # Extract data immediately to avoid DetachedInstanceError after session closes
+            agent_name = agent.name if agent else "Survivor"
+            agent_personality = agent.personality if agent else "friendly"
+
+        # 2. Generate AI gratitude
+        gratitude = await llm_service.generate_gratitude(
+            user=user,
+            amount=amount,
+            agent_name=agent_name,
+            agent_personality=agent_personality,
+            gift_name=gift_type
+        )
+        
+        # 3. Broadcast gift effect to Unity
+        await self._broadcast_event("gift_effect", {
+            "user": user,
+            "gift_type": gift_type,
+            "value": amount,
+            "message": f"{user} sent {amount} {gift_type}!",
+            "agent_name": agent_name if agent else None,
+            "gratitude": gratitude,
+            "duration": 8.0
+        })
+        
+        logger.info(f"Processed gift: {user} -> {amount} {gift_type} (Gratitude: {gratitude})")
+
+    async def process_bits(self, user: str, amount: int) -> None:
+        """Deprecated: Use handle_gift instead."""
+        await self.handle_gift(user, amount, "bits")
