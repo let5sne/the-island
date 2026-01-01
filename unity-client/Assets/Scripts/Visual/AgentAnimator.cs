@@ -17,6 +17,7 @@ namespace TheIsland
         public float moveBopAmount = 0.1f;
         public float moveTiltAmount = 10f;
         public float bankingAmount = 15f;
+        public float jiggleIntensity = 0.15f;
         
         private SpriteRenderer _spriteRenderer;
         private Vector3 _originalScale;
@@ -27,7 +28,8 @@ namespace TheIsland
         private Vector3 _currentVelocity;
         private float _velocityPercentage; // 0 to 1
         private bool _isMoving;
-        private float _transitionTimer;
+        private float _jiggleOffset;
+        private float _jiggleVelocity;
 
         private void Awake()
         {
@@ -50,20 +52,21 @@ namespace TheIsland
         public void SetMovement(Vector3 velocity, float maxVelocity = 3f)
         {
             _currentVelocity = velocity;
-            _velocityPercentage = Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, maxVelocity));
+            float targetVelPct = Mathf.Clamp01(velocity.magnitude / Mathf.Max(0.1f, maxVelocity));
             
-            bool nowMoving = _velocityPercentage > 0.05f;
+            bool nowMoving = targetVelPct > 0.05f;
             if (nowMoving && !_isMoving)
             {
-                // Anticipation: Squash when starting to move
                 TriggerAnticipation();
+                _jiggleVelocity = -2f; // Initial kickback
             }
             else if (!nowMoving && _isMoving)
             {
-                // Overshoot: Rebound when stopping
                 TriggerOvershoot();
+                _jiggleVelocity = 2f; // Snap forward
             }
             
+            _velocityPercentage = targetVelPct;
             _isMoving = nowMoving;
         }
 
@@ -93,6 +96,14 @@ namespace TheIsland
         {
             if (_spriteRenderer == null) return;
 
+            // Phase 19-F: Secondary Jiggle Physics (Simple Spring)
+            float jiggleStrength = 150f;
+            float jiggleDamping = 10f;
+            float force = -jiggleStrength * _jiggleOffset;
+            _jiggleVelocity += (force * Time.deltaTime);
+            _jiggleVelocity -= _jiggleVelocity * jiggleDamping * Time.deltaTime;
+            _jiggleOffset += _jiggleVelocity * Time.deltaTime;
+
             if (_isMoving)
             {
                 AnimateMove();
@@ -105,9 +116,12 @@ namespace TheIsland
             // Smoothly apply transforms
             float lerpSpeed = 12f;
             var t = _spriteRenderer.transform;
-            t.localPosition = Vector3.Lerp(t.localPosition, _targetLocalPos, Time.deltaTime * lerpSpeed);
-            t.localRotation = Quaternion.Slerp(t.localRotation, _targetLocalRot, Time.deltaTime * lerpSpeed);
-            t.localScale = Vector3.Lerp(t.localScale, _targetScale, Time.deltaTime * lerpSpeed);
+            t.localPosition = Vector3.Lerp(t.localPosition, _targetLocalPos + new Vector3(0, _jiggleOffset * 0.1f, 0), Time.deltaTime * lerpSpeed);
+            t.localRotation = Quaternion.Slerp(t.localRotation, _targetLocalRot * Quaternion.Euler(0, 0, _jiggleOffset * 2f), Time.deltaTime * lerpSpeed);
+            
+            // Apply scale with jiggle squash/stretch
+            Vector3 jiggleScale = new Vector3(1f + _jiggleOffset, 1f - _jiggleOffset, 1f);
+            t.localScale = Vector3.Lerp(t.localScale, Vector3.Scale(_targetScale, jiggleScale), Time.deltaTime * lerpSpeed);
         }
 
         private void AnimateIdle()

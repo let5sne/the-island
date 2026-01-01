@@ -83,6 +83,9 @@ namespace TheIsland.Visual
         private bool _isMoving;
         private float _moveSpeed = 3f;
         private Vector3 _lastPosition;
+        private GameObject _shadowObj;
+        private SpriteRenderer _shadowRenderer;
+        private float _footstepTimer;
 
         // UI Smoothing (Phase 19)
         private float _currentHpPercent;
@@ -110,7 +113,38 @@ namespace TheIsland.Visual
             if (_animator == null) _animator = gameObject.AddComponent<AgentAnimator>();
             
             CreateVisuals();
+            CreateShadow();
             _lastPosition = transform.position;
+        }
+
+        private void CreateShadow()
+        {
+            _shadowObj = new GameObject("Shadow");
+            _shadowObj.transform.SetParent(transform);
+            _shadowObj.transform.localPosition = new Vector3(0, 0.05f, 0); // Slightly above ground
+            _shadowObj.transform.localRotation = Quaternion.Euler(90, 0, 0); // Flat on ground
+            
+            _shadowRenderer = _shadowObj.AddComponent<SpriteRenderer>();
+            _shadowRenderer.sprite = CreateBlobShadowSprite();
+            _shadowRenderer.color = new Color(0, 0, 0, 0.3f);
+            _shadowRenderer.sortingOrder = 1; // Just above ground
+        }
+
+        private Sprite CreateBlobShadowSprite()
+        {
+            int size = 32;
+            Texture2D tex = new Texture2D(size, size);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), new Vector2(size / 2f, size / 2f)) / (size / 2f);
+                    float alpha = Mathf.Exp(-dist * 4f);
+                    tex.SetPixel(x, y, new Color(1, 1, 1, alpha));
+                }
+            }
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
         }
 
         private void Update()
@@ -169,8 +203,40 @@ namespace TheIsland.Visual
                 FaceInteractionTarget();
             }
 
+            // Phase 19-F: AAA Grounding (Shadow & Footsteps)
+            UpdateGrounding();
+
+            // Phase 19-F: Random emotion trigger test (Optional, for demo)
+            if (Random.value < 0.001f) ShowEmotion("!"); 
+
             // Phase 19: Smooth UI Bar Transitions
             UpdateSmoothBars();
+        }
+
+        private void UpdateGrounding()
+        {
+            if (_shadowObj != null)
+            {
+                // Shadow follows but stays on ground (assuming Y=0 is ground level or character is at Y=0)
+                // For simplicity, we just keep it at local zero.
+                // If the character bops up, the shadow should shrink slightly
+                float bopY = (_spriteRenderer != null) ? _spriteRenderer.transform.localPosition.y : 0;
+                float shadowScale = Mathf.Clamp(1.0f - (bopY * 0.5f), 0.5f, 1.2f);
+                _shadowObj.transform.localScale = new Vector3(1.2f * shadowScale, 0.6f * shadowScale, 1f);
+            }
+
+            if (_isMoving)
+            {
+                _footstepTimer += Time.deltaTime;
+                if (_footstepTimer > 0.35f) // Approximate footstep interval
+                {
+                    _footstepTimer = 0;
+                    if (TheIsland.Visual.VisualEffectsManager.Instance != null)
+                    {
+                        TheIsland.Visual.VisualEffectsManager.Instance.SpawnFootstepDust(transform.position);
+                    }
+                }
+            }
         }
 
         private void FaceInteractionTarget()
@@ -200,6 +266,74 @@ namespace TheIsland.Visual
                     _spriteRenderer.flipX = dx < 0;
                 }
             }
+        }
+
+        public void ShowEmotion(string type)
+        {
+            var bubble = new GameObject("EmotionBubble");
+            bubble.transform.SetParent(transform);
+            bubble.transform.localPosition = new Vector3(0, 2.5f, 0); // Above head
+            
+            var sprite = bubble.AddComponent<SpriteRenderer>();
+            sprite.sprite = CreateEmotionSprite(type);
+            sprite.sortingOrder = 110; // Top layer
+            bubble.AddComponent<Billboard>();
+            
+            StartCoroutine(AnimateEmotion(bubble));
+        }
+
+        private Sprite CreateEmotionSprite(string type)
+        {
+            int size = 32;
+            Texture2D tex = new Texture2D(size, size);
+            Color bgColor = Color.white;
+            Color iconColor = type == "!" ? Color.red : (type == "?" ? Color.blue : Color.black);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float d = Vector2.Distance(new Vector2(x, y), new Vector2(size / 2f, size / 2f)) / (size / 2.2f);
+                    bool isBorder = d > 0.85f && d < 1.0f;
+                    bool isBg = d <= 0.85f;
+                    
+                    if (isBorder) tex.SetPixel(x, y, Color.black);
+                    else if (isBg) tex.SetPixel(x, y, bgColor);
+                    else tex.SetPixel(x, y, new Color(0, 0, 0, 0));
+                }
+            }
+            // Simple "!" or "?" pixel art logic could go here, but for now just a red dot for "!"
+            if (type == "!") {
+                for (int y = 10; y < 24; y++) tex.SetPixel(16, y, iconColor);
+                tex.SetPixel(16, 8, iconColor);
+            }
+
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        private IEnumerator AnimateEmotion(GameObject bubble)
+        {
+            float elapsed = 0;
+            float duration = 1.5f;
+            Vector3 startScale = Vector3.zero;
+            Vector3 peakScale = Vector3.one * 0.8f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                float scale = (t < 0.2f) ? (t / 0.2f) : (1f - (t - 0.2f) / 0.8f);
+                bubble.transform.localScale = peakScale * (Mathf.Sin(t * Mathf.PI * 1.5f) * 0.2f + 0.8f);
+                bubble.transform.localPosition += Vector3.up * Time.deltaTime * 0.2f;
+                
+                if (t > 0.8f) {
+                    var s = bubble.GetComponent<SpriteRenderer>();
+                    s.color = new Color(1, 1, 1, (1f - t) / 0.2f);
+                }
+                yield return null;
+            }
+            Destroy(bubble);
         }
 
         private Vector3 CalculateRepulsion()
