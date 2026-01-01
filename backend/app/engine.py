@@ -5,6 +5,7 @@ Manages survival mechanics, agent states, and user interactions.
 
 import asyncio
 import logging
+import random
 import re
 import time
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING
 from .schemas import GameEvent, EventType
 from .database import init_db, get_db_session
 from .models import User, Agent, WorldState
+from .llm import llm_service
 
 if TYPE_CHECKING:
     from .server import ConnectionManager
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Command patterns
 FEED_PATTERN = re.compile(r"feed\s+(\w+)", re.IGNORECASE)
 CHECK_PATTERN = re.compile(r"(check|查询|状态)", re.IGNORECASE)
+RESET_PATTERN = re.compile(r"(reset|重新开始|重置)", re.IGNORECASE)
 
 # Game constants
 TICK_INTERVAL = 5.0          # Seconds between ticks
@@ -29,12 +32,13 @@ HP_DECAY_WHEN_STARVING = 5   # HP lost when energy is 0
 FEED_COST = 10               # Gold cost to feed an agent
 FEED_ENERGY_RESTORE = 20     # Energy restored when fed
 INITIAL_USER_GOLD = 100      # Starting gold for new users
+IDLE_CHAT_PROBABILITY = 0.1  # 10% chance of idle chat per tick
 
 # Initial NPC data
 INITIAL_AGENTS = [
-    {"name": "Jack", "personality": "勇敢"},
-    {"name": "Luna", "personality": "狡猾"},
-    {"name": "Bob", "personality": "老实"},
+    {"name": "Jack", "personality": "Brave"},
+    {"name": "Luna", "personality": "Cunning"},
+    {"name": "Bob", "personality": "Honest"},
 ]
 
 
@@ -116,6 +120,103 @@ class GameEngine:
             {"agents": agents_data}
         )
 
+    async def _trigger_agent_speak(
+        self,
+        agent_id: int,
+        agent_name: str,
+        agent_personality: str,
+        agent_hp: int,
+        agent_energy: int,
+        event_description: str,
+        event_type: str = "feed"
+    ) -> None:
+        """
+        Fire-and-forget LLM call to generate agent speech.
+        This runs asynchronously without blocking the game loop.
+        """
+        try:
+            # Create a lightweight agent-like object for LLM
+            class AgentSnapshot:
+                def __init__(self, name, personality, hp, energy):
+                    self.name = name
+                    self.personality = personality
+                    self.hp = hp
+                    self.energy = energy
+
+            agent_snapshot = AgentSnapshot(
+                agent_name, agent_personality, agent_hp, agent_energy
+            )
+
+            text = await llm_service.generate_reaction(
+                agent_snapshot, event_description, event_type
+            )
+
+            await self._broadcast_event(
+                EventType.AGENT_SPEAK,
+                {
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "text": text
+                }
+            )
+            logger.debug(f"Agent {agent_name} says: {text}")
+
+        except Exception as e:
+            logger.error(f"Error in agent speak: {e}")
+
+    async def _trigger_idle_chat(self) -> None:
+        """
+        Randomly select an alive agent to say something about their situation.
+        Called with IDLE_CHAT_PROBABILITY chance each tick.
+        """
+        with get_db_session() as db:
+            alive_agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            world = db.query(WorldState).first()
+            weather = world.weather if world else "Sunny"
+
+            if not alive_agents:
+                return
+
+            # Pick a random alive agent
+            agent = random.choice(alive_agents)
+            agent_data = {
+                "id": agent.id,
+                "name": agent.name,
+                "personality": agent.personality,
+                "hp": agent.hp,
+                "energy": agent.energy
+            }
+
+        try:
+            class AgentSnapshot:
+                def __init__(self, name, personality, hp, energy):
+                    self.name = name
+                    self.personality = personality
+                    self.hp = hp
+                    self.energy = energy
+
+            agent_snapshot = AgentSnapshot(
+                agent_data["name"],
+                agent_data["personality"],
+                agent_data["hp"],
+                agent_data["energy"]
+            )
+
+            text = await llm_service.generate_idle_chat(agent_snapshot, weather)
+
+            await self._broadcast_event(
+                EventType.AGENT_SPEAK,
+                {
+                    "agent_id": agent_data["id"],
+                    "agent_name": agent_data["name"],
+                    "text": text
+                }
+            )
+            logger.debug(f"Idle chat - {agent_data['name']}: {text}")
+
+        except Exception as e:
+            logger.error(f"Error in idle chat: {e}")
+
     async def _process_survival_tick(self) -> None:
         """
         Process survival mechanics for all alive agents.
@@ -151,7 +252,7 @@ class GameEngine:
                 EventType.AGENT_DIED,
                 {
                     "agent_name": death["name"],
-                    "message": f"💀 {death['name']}（{death['personality']}）因饥饿而死亡..."
+                    "message": f"{death['name']} ({death['personality']}) has died of starvation..."
                 }
             )
 
@@ -177,14 +278,14 @@ class GameEngine:
             if agent is None:
                 await self._broadcast_event(
                     EventType.ERROR,
-                    {"message": f"找不到名为 {agent_name} 的角色"}
+                    {"message": f"Agent '{agent_name}' not found"}
                 )
                 return
 
             if agent.status != "Alive":
                 await self._broadcast_event(
                     EventType.ERROR,
-                    {"message": f"{agent.name} 已经死亡，无法投喂"}
+                    {"message": f"{agent.name} is already dead and cannot be fed"}
                 )
                 return
 
@@ -193,7 +294,7 @@ class GameEngine:
                     EventType.ERROR,
                     {
                         "user": username,
-                        "message": f"金币不足！需要 {FEED_COST} 金币，当前只有 {user.gold} 金币"
+                        "message": f"Not enough gold! Need {FEED_COST}, you have {user.gold}"
                     }
                 )
                 return
@@ -206,7 +307,10 @@ class GameEngine:
 
             # Store data for broadcasting before session closes
             feed_result = {
+                "agent_id": agent.id,
                 "agent_name": agent.name,
+                "agent_personality": agent.personality,
+                "agent_hp": agent.hp,
                 "actual_restore": actual_restore,
                 "agent_energy": agent.energy,
                 "user_gold": user.gold
@@ -222,8 +326,8 @@ class GameEngine:
                     "energy_restored": feed_result["actual_restore"],
                     "agent_energy": feed_result["agent_energy"],
                     "user_gold": feed_result["user_gold"],
-                    "message": f"🍖 {username} 投喂了 {feed_result['agent_name']}！"
-                              f"恢复 {feed_result['actual_restore']} 点体力（当前: {feed_result['agent_energy']}/100）"
+                    "message": f"{username} fed {feed_result['agent_name']}! "
+                              f"Restored {feed_result['actual_restore']} energy (now: {feed_result['agent_energy']}/100)"
                 }
             )
 
@@ -233,6 +337,19 @@ class GameEngine:
                     "user": username,
                     "gold": feed_result["user_gold"]
                 }
+            )
+
+            # Fire-and-forget: Trigger LLM response asynchronously
+            asyncio.create_task(
+                self._trigger_agent_speak(
+                    agent_id=feed_result["agent_id"],
+                    agent_name=feed_result["agent_name"],
+                    agent_personality=feed_result["agent_personality"],
+                    agent_hp=feed_result["agent_hp"],
+                    agent_energy=feed_result["agent_energy"],
+                    event_description=f"User {username} gave you food. You feel more energetic!",
+                    event_type="feed"
+                )
             )
 
     async def _handle_check(self, username: str) -> None:
@@ -246,7 +363,7 @@ class GameEngine:
             user_data = {"username": user.username, "gold": user.gold}
             agents_data = [agent.to_dict() for agent in agents]
             world_data = world.to_dict() if world else {}
-            message = f"📊 {username} 的状态 - 金币: {user_data['gold']}"
+            message = f"{username}'s status - Gold: {user_data['gold']}"
 
         await self._broadcast_event(
             EventType.CHECK,
@@ -257,6 +374,28 @@ class GameEngine:
                 "message": message
             }
         )
+
+    async def _handle_reset(self, username: str) -> None:
+        """Handle reset/restart command - reset all agents to full HP/energy."""
+        with get_db_session() as db:
+            agents = db.query(Agent).all()
+            for agent in agents:
+                agent.hp = 100
+                agent.energy = 100
+                agent.status = "Alive"
+
+            # Also reset world state
+            world = db.query(WorldState).first()
+            if world:
+                world.day_count = 1
+
+        await self._broadcast_event(
+            EventType.SYSTEM,
+            {"message": f"{username} triggered a restart! All survivors have been revived."}
+        )
+
+        # Broadcast updated agent states
+        await self._broadcast_agents_status()
 
     async def process_comment(self, user: str, message: str) -> None:
         """
@@ -283,6 +422,10 @@ class GameEngine:
             await self._handle_check(user)
             return
 
+        if RESET_PATTERN.search(message):
+            await self._handle_reset(user)
+            return
+
         # No command matched - treat as regular chat
 
     async def _game_loop(self) -> None:
@@ -292,6 +435,7 @@ class GameEngine:
         Every tick:
         1. Process survival mechanics (energy/HP decay)
         2. Broadcast agent states
+        3. Random chance for idle chat
         """
         logger.info("Game loop started - Island survival simulation")
 
@@ -321,6 +465,10 @@ class GameEngine:
                     "alive_agents": alive_count
                 }
             )
+
+            # Random idle chat (10% chance per tick)
+            if alive_count > 0 and random.random() < IDLE_CHAT_PROBABILITY:
+                asyncio.create_task(self._trigger_idle_chat())
 
             logger.debug(f"Tick {self._tick_count}: {alive_count} agents alive")
 

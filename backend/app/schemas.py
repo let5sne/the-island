@@ -18,6 +18,7 @@ class EventType(str, Enum):
     # Island survival events
     AGENTS_UPDATE = "agents_update"      # All agents status broadcast
     AGENT_DIED = "agent_died"            # An agent has died
+    AGENT_SPEAK = "agent_speak"          # Agent says something (LLM response)
     FEED = "feed"                        # User fed an agent
     USER_UPDATE = "user_update"          # User gold/status update
     WORLD_UPDATE = "world_update"        # World state update

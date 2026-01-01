@@ -92,6 +92,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 15px;
+            padding-top: 50px;  /* Space for speech bubbles */
         }
         .agent-card {
             background: rgba(255, 255, 255, 0.05);
@@ -178,6 +179,63 @@
             background: #444;
             color: #888;
             cursor: not-allowed;
+        }
+
+        /* Speech Bubble */
+        .speech-bubbles-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .speech-bubble {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 10px 15px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            max-width: 250px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transform: translateX(-50%);
+            animation: bubbleIn 0.3s ease-out;
+            pointer-events: auto;
+        }
+        .speech-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 8px solid rgba(255, 255, 255, 0.95);
+        }
+        .speech-bubble .bubble-name {
+            font-weight: bold;
+            color: #88cc88;
+            margin-bottom: 5px;
+            font-size: 0.8rem;
+        }
+        .speech-bubble.fade-out {
+            animation: bubbleOut 0.3s ease-in forwards;
+        }
+        @keyframes bubbleIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes bubbleOut {
+            from { opacity: 1; transform: translateX(-50%) translateY(0); }
+            to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+        }
+        .agents-section {
+            position: relative;
+        }
+        .agent-card {
+            position: relative;
         }
 
         /* Panels */
@@ -267,6 +325,7 @@
         .event.error { border-color: #ff4444; background: rgba(255, 68, 68, 0.1); }
         .event.feed { border-color: #ffaa00; background: rgba(255, 170, 0, 0.1); color: #ffcc66; }
         .event.agent_died { border-color: #ff4444; background: rgba(255, 68, 68, 0.15); color: #ff8888; }
+        .event.agent_speak { border-color: #88ccff; background: rgba(136, 204, 255, 0.1); color: #aaddff; }
         .event.check { border-color: #88cc88; background: rgba(136, 204, 136, 0.1); }
         .event-time { color: #888; font-size: 11px; }
         .event-type { font-weight: bold; text-transform: uppercase; font-size: 11px; }
@@ -299,7 +358,11 @@
 
         <!-- Agents Section -->
         <div class="agents-section">
-            <h2 class="section-title">岛上幸存者</h2>
+            <div class="speech-bubbles-overlay" id="speechBubblesOverlay"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 class="section-title" style="margin-bottom: 0;">岛上幸存者</h2>
+                <button onclick="resetGame()" style="background: #ff6666; padding: 8px 16px; font-size: 13px;">🔄 重新开始</button>
+            </div>
             <div class="agents-grid" id="agentsGrid">
                 <!-- Agent cards will be dynamically generated -->
                 <div class="agent-card" id="agent-loading">
@@ -316,7 +379,7 @@
                     <button onclick="sendComment()">发送</button>
                 </div>
                 <p style="margin-top: 10px; font-size: 0.85rem; color: #888;">
-                    指令: <code>feed [名字]</code> - 投喂角色 (消耗10金币) | <code>check</code> - 查询状态
+                    指令: <code>feed [名字]</code> - 投喂 | <code>check</code> - 查询 | <code>reset</code> - 重新开始
                 </p>
             </div>
 

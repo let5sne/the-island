@@ -96,6 +96,9 @@ function handleGameEvent(event) {
                 userGoldDisplay.textContent = userGold;
             }
             break;
+        case 'agent_speak':
+            showSpeechBubble(data.agent_id, data.agent_name, data.text);
+            break;
     }
 
     logEvent(event);
@@ -202,6 +205,75 @@ function feedAgent(agentName) {
 }
 
 /**
+ * Show speech bubble above an agent card
+ */
+function showSpeechBubble(agentId, agentName, text) {
+    const card = document.getElementById(`agent-${agentId}`);
+    const overlay = document.getElementById('speechBubblesOverlay');
+
+    if (!card || !overlay) {
+        console.warn(`Agent card or overlay not found: agent-${agentId}`);
+        return;
+    }
+
+    // Remove existing bubble for this agent if any
+    const existingBubble = document.getElementById(`bubble-${agentId}`);
+    if (existingBubble) {
+        existingBubble.remove();
+    }
+
+    // Get card position relative to overlay
+    const cardRect = card.getBoundingClientRect();
+    const overlayRect = overlay.parentElement.getBoundingClientRect();
+
+    // Create new speech bubble
+    const bubble = document.createElement('div');
+    bubble.className = 'speech-bubble';
+    bubble.id = `bubble-${agentId}`;
+    bubble.innerHTML = `
+        <div class="bubble-name">${agentName}</div>
+        <div>${text}</div>
+    `;
+
+    // Position bubble above the card
+    const left = (cardRect.left - overlayRect.left) + (cardRect.width / 2);
+    const top = (cardRect.top - overlayRect.top) - 10;
+
+    bubble.style.left = `${left}px`;
+    bubble.style.top = `${top}px`;
+
+    overlay.appendChild(bubble);
+
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        bubble.classList.add('fade-out');
+        setTimeout(() => {
+            if (bubble.parentNode) {
+                bubble.remove();
+            }
+        }, 300); // Wait for fade animation
+    }, 5000);
+}
+
+/**
+ * Reset game - revive all agents
+ */
+function resetGame() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert('未连接到服务器');
+        return;
+    }
+
+    const user = getCurrentUser();
+    const payload = {
+        action: 'send_comment',
+        payload: { user, message: 'reset' }
+    };
+
+    ws.send(JSON.stringify(payload));
+}
+
+/**
  * Send a comment/command to the server
  */
 function sendComment() {
@@ -250,6 +322,8 @@ function formatEventData(eventType, data) {
         case 'agent_died':
         case 'check':
             return data.message;
+        case 'agent_speak':
+            return `💬 ${data.agent_name}: "${data.text}"`;
         case 'agents_update':
             return `角色状态已更新`;
         case 'user_update':

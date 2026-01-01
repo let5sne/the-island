@@ -30,3 +30,22 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Unity
+unity-client/Library/
+unity-client/Temp/
+unity-client/Logs/
+unity-client/UserSettings/
+unity-client/obj/
+unity-client/*.csproj
+unity-client/*.sln
+unity-client/*.pidb
+unity-client/*.booproj
+unity-client/*.svd
+unity-client/*.pdb
+unity-client/*.mdb
+unity-client/*.opendb
+unity-client/*.VC.db
+
+# Serena AI
+.serena/
