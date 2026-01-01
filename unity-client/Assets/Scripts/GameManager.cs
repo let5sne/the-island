@@ -158,6 +158,9 @@ namespace TheIsland.Core
             network.OnGiftEffect += HandleGiftEffect;  // Phase 8
             network.OnAgentAction += HandleAgentAction; // Phase 13
             network.OnRandomEvent += HandleRandomEvent; // Phase 17-C
+            network.OnGiveItem += HandleGiveItem; // Phase 23
+            network.OnGroupActivity += HandleGroupActivity; // Phase 24
+            network.OnVFXEvent += HandleVFXEvent; // Phase 8
         }
 
         private void UnsubscribeFromNetworkEvents()
@@ -186,6 +189,9 @@ namespace TheIsland.Core
             network.OnSocialInteraction -= HandleSocialInteraction;
             network.OnGiftEffect -= HandleGiftEffect;  // Phase 8
             network.OnRandomEvent -= HandleRandomEvent; // Phase 17-C
+            network.OnGiveItem -= HandleGiveItem; // Phase 23
+            network.OnGroupActivity -= HandleGroupActivity; // Phase 24
+            network.OnVFXEvent -= HandleVFXEvent; // Phase 8
         }
         #endregion
 
@@ -447,8 +453,82 @@ namespace TheIsland.Core
                 _playerGold = data.user_gold;
                 UpdateGoldDisplay();
             }
-
             ShowNotification(data.message);
+        }
+
+        private void HandleGiveItem(GiveItemEventData data)
+        {
+            Debug.Log($"[GameManager] Give Item: {data.message}");
+            ShowNotification(data.message);
+
+            if (_agentVisuals.TryGetValue(data.from_id, out AgentVisual fromVisual) &&
+                _agentVisuals.TryGetValue(data.to_id, out AgentVisual toVisual))
+            {
+                // Trigger Visual Effect (Phase 23)
+                // We assume AgentVisual has DoGiveItem method
+                fromVisual.DoGiveItem(toVisual.transform, data.item_type);
+            }
+        }
+
+        private void HandleGroupActivity(GroupActivityEventData data)
+        {
+            Debug.Log($"[GameManager] Group Activity: {data.activity_type} with {data.storyteller_name}");
+            
+            if (data.activity_type == "storytelling")
+            {
+                ShowNotification($"🔥 {data.storyteller_name} tells a story about {data.topic}...");
+
+                // Storyteller Visuals
+                if (_agentVisuals.TryGetValue(data.storyteller_id, out AgentVisual storyteller))
+                {
+                    storyteller.ShowSpeech(data.content, 8f); // Long duration for story
+                    storyteller.DoStorytelling(); // Animation trigger
+                }
+
+                // Listener Visuals
+                if (data.listener_ids != null)
+                {
+                    foreach (int listenerId in data.listener_ids)
+                    {
+                        if (_agentVisuals.TryGetValue(listenerId, out AgentVisual listener))
+                        {
+                            // Listeners face the storyteller and show interest
+                            if (storyteller != null)
+                            {
+                                listener.DoListen(storyteller.transform);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void HandleVFXEvent(VFXEventData data)
+        {
+            Debug.Log($"[GameManager] VFX: {data.effect}");
+            if (!string.IsNullOrEmpty(data.message))
+            {
+                ShowNotification(data.message);
+            }
+
+            Vector3 targetPos = new Vector3(0, 2, 0); // Default air center
+            
+            if (data.target_id > 0)
+            {
+                if (_agentVisuals.TryGetValue(data.target_id, out AgentVisual visual))
+                {
+                    targetPos = visual.transform.position;
+                }
+                else if (_agentUIs.TryGetValue(data.target_id, out AgentUI ui))
+                {
+                    targetPos = ui.transform.position;
+                }
+            }
+
+            if (VFXManager.Instance != null)
+            {
+                VFXManager.Instance.PlayEffect(data.effect, targetPos);
+            }
         }
 
         private void HandleTalk(TalkEventData data)
@@ -553,7 +633,22 @@ namespace TheIsland.Core
             // Find agent and command movement
             if (_agentVisuals.TryGetValue(data.agent_id, out AgentVisual agentVisual))
             {
-                agentVisual.MoveTo(targetPos);
+                // Phase 21-C: Handle Follow/Target Logic
+                if (data.action_type == "Follow" && !string.IsNullOrEmpty(data.target_name))
+                {
+                    int targetId = GetAgentIdByName(data.target_name);
+                    if (targetId >= 0 && _agentVisuals.TryGetValue(targetId, out AgentVisual targetVisual))
+                    {
+                        agentVisual.SetFollowTarget(targetVisual.transform);
+                        Debug.Log($"[GameManager] {data.agent_name} is now following {data.target_name}");
+                    }
+                }
+                else
+                {
+                    // Clear follow target for non-follow actions
+                    agentVisual.SetFollowTarget(null);
+                    agentVisual.MoveTo(targetPos);
+                }
                 
                 // Optional: Show thought bubble or speech
                 if (!string.IsNullOrEmpty(data.dialogue))
