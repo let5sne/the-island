@@ -95,26 +95,57 @@ namespace TheIsland.Visual
         {
             if (!IsAlive) return;
 
-            // Idle breathing animation
+            // Idle breathing animation (Squash and Stretch)
             _idleAnimTimer += Time.deltaTime;
-            _breathScale = 1f + Mathf.Sin(_idleAnimTimer * 2f) * 0.02f;
+            
+            // Breathing: Scale Y up, Scale X down (preserving volume)
+            float breath = Mathf.Sin(_idleAnimTimer * 3f) * 0.05f;
+            _breathScale = 1f + breath;
+            float antiBreath = 1f - (breath * 0.5f); // Squash X when stretching Y
 
-            // Gentle bobbing
-            _bobOffset = Mathf.Sin(_idleAnimTimer * 1.5f) * 0.05f;
+            // Bobbing: Move up and down
+            _bobOffset = Mathf.Sin(_idleAnimTimer * 2f) * 0.08f;
 
             if (_spriteRenderer != null && _originalSpriteScale != Vector3.zero)
             {
-                // Apply breathing scale
+                // Apply squash & stretch
                 _spriteRenderer.transform.localScale = new Vector3(
-                    _originalSpriteScale.x * _breathScale,
+                    _originalSpriteScale.x * antiBreath,
                     _originalSpriteScale.y * _breathScale,
                     _originalSpriteScale.z
                 );
 
-                // Apply bobbing
+                // Apply bobbing position
                 var pos = _spriteRenderer.transform.localPosition;
                 pos.y = 1f + _bobOffset;
                 _spriteRenderer.transform.localPosition = pos;
+            }
+        }
+
+        // Trigger a jump animation (to be called by events)
+        public void DoJump()
+        {
+            StartCoroutine(JumpRoutine());
+        }
+
+        private IEnumerator JumpRoutine()
+        {
+            float timer = 0;
+            float duration = 0.4f;
+            Vector3 startPos = _spriteRenderer.transform.localPosition;
+            
+            while (timer < duration)
+            {
+                timer += Time.deltaTime;
+                float t = timer / duration;
+                
+                // Parabolic jump height
+                float height = Mathf.Sin(t * Mathf.PI) * 0.5f;
+                
+                var pos = _spriteRenderer.transform.localPosition;
+                pos.y = startPos.y + height;
+                _spriteRenderer.transform.localPosition = pos;
+                yield return null;
             }
         }
 
@@ -604,7 +635,7 @@ namespace TheIsland.Visual
             var bg = panel.AddComponent<Image>();
             bg.sprite = CreateRoundedRectSprite(32, 32, 8);
             bg.type = Image.Type.Sliced;
-            bg.color = new Color(0.1f, 0.12f, 0.18f, 0.85f);
+            bg.color = new Color(0.1f, 0.12f, 0.18f, 0.6f); // Lower alpha for glass effect
 
             // Add subtle border
             var borderObj = new GameObject("Border");

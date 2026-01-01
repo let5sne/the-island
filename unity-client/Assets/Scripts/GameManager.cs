@@ -322,6 +322,7 @@ namespace TheIsland.Core
             if (_agentVisuals.TryGetValue(data.agent_id, out AgentVisual agentVisual))
             {
                 agentVisual.ShowSpeech(data.text);
+                agentVisual.DoJump(); // Add jump effect
             }
             // Check AgentUI (programmatic UI system)
             else if (_agentUIs.TryGetValue(data.agent_id, out AgentUI agentUI))

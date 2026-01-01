@@ -57,6 +57,7 @@ namespace TheIsland.Visual
         [SerializeField] private Color waterDeepColor = new Color(0.1f, 0.4f, 0.6f, 0.9f);
         [SerializeField] private float waveSpeed = 0.5f;
         [SerializeField] private float waveAmplitude = 0.1f;
+        [SerializeField] private Material customWaterMaterial; // Custom shader support
         #endregion
 
         #region References
@@ -116,8 +117,9 @@ namespace TheIsland.Visual
                 UpdateSkyMaterial();
             }
 
-            // Animate water
-            AnimateWater();
+            // Animate environment (Water & Trees)
+            AnimateEnvironment();
+            AnimateClouds();
         }
 
         private void OnDestroy()
@@ -140,6 +142,7 @@ namespace TheIsland.Visual
             CreateWater();
             CreateLighting();
             CreateDecorations();
+            CreateClouds();
         }
 
         private void CreateSky()
@@ -308,9 +311,17 @@ namespace TheIsland.Visual
             _waterPlane.transform.localScale = new Vector3(60, 15, 1);
 
             // Create water material
-            _waterMaterial = new Material(Shader.Find("Unlit/Transparent"));
-            _waterMaterial.mainTexture = CreateWaterTexture();
-            _waterPlane.GetComponent<Renderer>().material = _waterMaterial;
+            if (customWaterMaterial != null)
+            {
+                _waterMaterial = customWaterMaterial;
+                _waterPlane.GetComponent<Renderer>().material = _waterMaterial;
+            }
+            else
+            {
+                _waterMaterial = new Material(Shader.Find("Unlit/Transparent"));
+                _waterMaterial.mainTexture = CreateWaterTexture();
+                _waterPlane.GetComponent<Renderer>().material = _waterMaterial;
+            }
             _waterPlane.GetComponent<Renderer>().sortingOrder = -40;
 
             Destroy(_waterPlane.GetComponent<Collider>());
@@ -437,6 +448,29 @@ namespace TheIsland.Visual
             tex.filterMode = FilterMode.Point;
 
             return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0));
+        }
+
+        private void AnimateEnvironment()
+        {
+            // Water animation
+            if (_waterMaterial != null)
+            {
+                float offset = Time.time * waveSpeed * 0.1f;
+                _waterMaterial.mainTextureOffset = new Vector2(offset, offset * 0.5f);
+            }
+
+            // Tree swaying animation
+            // Find all palm tree objects (simple lookup by name since we created them)
+            // Ideally we'd cache these, but for this scale it's fine
+            foreach (Transform child in transform)
+            {
+                if (child.name == "PalmTree")
+                {
+                    // Sway rotation
+                    float sway = Mathf.Sin(Time.time * 1.5f + child.position.x) * 2.0f;
+                    child.rotation = Quaternion.Euler(0, 0, sway);
+                }
+            }
         }
 
         private void DrawPalmFronds(Color[] pixels, int width, int height, Color leaf, Color leafBright)
@@ -611,6 +645,80 @@ namespace TheIsland.Visual
             RenderSettings.ambientLight = ambient * weatherTint * 0.8f;
         }
         #endregion
+
+        private void CreateClouds()
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                var cloud = new GameObject("Cloud");
+                cloud.transform.SetParent(transform);
+                
+                // Random position in sky
+                float startX = Random.Range(-25f, 25f);
+                float startY = Random.Range(3f, 8f);
+                float depth = Random.Range(15f, 25f);
+                cloud.transform.position = new Vector3(startX, startY, depth);
+                
+                var renderer = cloud.AddComponent<SpriteRenderer>();
+                renderer.sprite = CreateCloudSprite();
+                renderer.sortingOrder = -90; // Behind everything but sky
+                
+                // Random size and opacity
+                float scale = Random.Range(3f, 6f);
+                cloud.transform.localScale = new Vector3(scale * 1.5f, scale, 1f);
+                renderer.color = new Color(1f, 1f, 1f, Random.Range(0.4f, 0.8f));
+            }
+        }
+
+        private Sprite CreateCloudSprite()
+        {
+            int size = 64;
+            Texture2D tex = new Texture2D(size, size);
+            Color[] pixels = new Color[size * size];
+
+            // Procedural fluffy cloud
+            Vector2 center = new Vector2(size/2, size/2);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float noise = Mathf.PerlinNoise(x * 0.15f, y * 0.15f); // Noise frequency
+                    float dist = Vector2.Distance(new Vector2(x, y), center) / (size * 0.4f);
+                    
+                    // Soft circle with noise
+                    float density = Mathf.Clamp01(1f - dist);
+                    density *= (0.5f + noise * 0.5f);
+                    // Threshold for fluffiness
+                    density = Mathf.SmoothStep(0.2f, 0.8f, density);
+                    
+                    pixels[y * size + x] = new Color(1, 1, 1, density * density);
+                }
+            }
+            
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        private void AnimateClouds()
+        {
+            // Move clouds slowly
+            foreach (Transform child in transform)
+            {
+                if (child.name == "Cloud")
+                {
+                    Vector3 pos = child.transform.position;
+                    // Wind speed depends on cloud distance for parallax
+                    float speed = 0.5f + (25f - pos.z) * 0.05f; 
+                    pos.x += Time.deltaTime * speed; 
+                    
+                    // Wrap around
+                    if (pos.x > 30f) pos.x = -30f;
+                    
+                    child.transform.position = pos;
+                }
+            }
+        }
 
         #region Public API
         /// <summary>

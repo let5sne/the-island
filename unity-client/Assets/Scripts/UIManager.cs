@@ -164,7 +164,7 @@ namespace TheIsland.UI
             topBar.offsetMax = new Vector2(-10, -10);
 
             var topBarImg = topBar.gameObject.AddComponent<Image>();
-            topBarImg.color = new Color(0, 0, 0, 0.7f);
+            topBarImg.color = new Color(0, 0, 0, 0.0f); // 透明顶部栏
 
             // Connection Status (Left)
             _connectionStatus = CreateText(topBar, "ConnectionStatus", "● Disconnected",
@@ -205,7 +205,7 @@ namespace TheIsland.UI
             bottomBar.offsetMax = new Vector2(-10, 70);
 
             var bottomBarImg = bottomBar.gameObject.AddComponent<Image>();
-            bottomBarImg.color = new Color(0, 0, 0, 0.7f);
+            bottomBarImg.color = new Color(0, 0, 0, 0.2f); // 低透明度底部栏
 
             // Command Input
             var inputObj = new GameObject("CommandInput");

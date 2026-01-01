@@ -189,7 +189,7 @@ namespace TheIsland.UI
             panelRect.offsetMax = new Vector2(360, -80);
 
             var panelImg = _panel.AddComponent<Image>();
-            panelImg.color = new Color(0.05f, 0.07f, 0.1f, 0.95f);
+            panelImg.color = new Color(0f, 0f, 0f, 0.0f); // 完全透明背景
 
             // 标题
             var header = new GameObject("Header");
@@ -201,7 +201,7 @@ namespace TheIsland.UI
             headerRect.sizeDelta = new Vector2(0, 28);
             headerRect.anchoredPosition = Vector2.zero;
 
-            header.AddComponent<Image>().color = new Color(0.12f, 0.15f, 0.2f);
+            header.AddComponent<Image>().color = new Color(0.12f, 0.15f, 0.2f, 0.8f);
 
             var titleObj = new GameObject("Title");
             titleObj.transform.SetParent(header.transform, false);
@@ -296,8 +296,8 @@ namespace TheIsland.UI
             entry.transform.SetParent(_content, false);
 
             entry.AddComponent<Image>().color = _entries.Count % 2 == 0
-                ? new Color(0.08f, 0.1f, 0.13f, 0.9f)
-                : new Color(0.06f, 0.08f, 0.11f, 0.9f);
+                ? new Color(0f, 0f, 0f, 0.2f)
+                : new Color(0f, 0f, 0f, 0.1f);
 
             var le = entry.AddComponent<LayoutElement>();
             le.minHeight = 36;
