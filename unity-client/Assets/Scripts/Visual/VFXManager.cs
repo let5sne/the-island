@@ -39,6 +39,11 @@ namespace TheIsland.Visual
         [SerializeField] private int heartParticleCount = 30;
         [SerializeField] private float heartDuration = 1.5f;
 
+        [Header("Footstep Dust Settings")]
+        [SerializeField] private Color dustColor = new Color(0.6f, 0.5f, 0.4f, 0.5f);
+        [SerializeField] private int dustParticleCount = 8;
+        [SerializeField] private float dustDuration = 0.5f;
+
         [Header("General Settings")]
         [SerializeField] private float effectScale = 1f;
         #endregion
@@ -78,6 +83,17 @@ namespace TheIsland.Visual
             var ps = CreateHeartExplosionSystem(position);
             ps.Play();
             Destroy(ps.gameObject, heartDuration + 0.5f);
+        }
+
+        /// <summary>
+        /// Spawn footstep dust effect at position.
+        /// Used when agents are walking.
+        /// </summary>
+        public void SpawnFootstepDust(Vector3 position)
+        {
+            var ps = CreateFootstepDustSystem(position);
+            ps.Play();
+            Destroy(ps.gameObject, dustDuration + 0.2f);
         }
 
         /// <summary>
@@ -251,6 +267,71 @@ namespace TheIsland.Visual
             var renderer = go.GetComponent<ParticleSystemRenderer>();
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
             renderer.material = CreateParticleMaterial(heartColor);
+
+            return ps;
+        }
+
+        /// <summary>
+        /// Create a procedural footstep dust particle system.
+        /// </summary>
+        private ParticleSystem CreateFootstepDustSystem(Vector3 position)
+        {
+            GameObject go = new GameObject("FootstepDust_VFX");
+            go.transform.position = position;
+
+            ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.loop = false;
+            main.duration = dustDuration;
+            main.startLifetime = 0.4f;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.5f, 1.5f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.1f * effectScale, 0.25f * effectScale);
+            main.startColor = dustColor;
+            main.gravityModifier = -0.1f;
+            main.maxParticles = dustParticleCount;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0;
+            emission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0f, dustParticleCount)
+            });
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = 0.2f * effectScale;
+            shape.rotation = new Vector3(-90f, 0f, 0f);
+
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            AnimationCurve sizeCurve = new AnimationCurve();
+            sizeCurve.AddKey(0f, 0.5f);
+            sizeCurve.AddKey(0.5f, 1f);
+            sizeCurve.AddKey(1f, 0.3f);
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
+
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[] {
+                    new GradientColorKey(dustColor, 0f),
+                    new GradientColorKey(dustColor, 1f)
+                },
+                new GradientAlphaKey[] {
+                    new GradientAlphaKey(0.5f, 0f),
+                    new GradientAlphaKey(0.3f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            colorOverLifetime.color = gradient;
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.material = CreateParticleMaterial(dustColor);
 
             return ps;
         }
