@@ -28,6 +28,7 @@ namespace TheIsland.UI
         private Button _resetButton;
         private GameObject _notificationPanel;
         private TextMeshProUGUI _notificationText;
+        // EventLog 现在自己管理初始化
         #endregion
 
         #region State
@@ -149,6 +150,7 @@ namespace TheIsland.UI
             CreateTopBar();
             CreateBottomBar();
             CreateNotificationPanel();
+            // EventLog 自己管理初始化，不在这里创建
         }
 
         private void CreateTopBar()

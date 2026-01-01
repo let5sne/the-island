@@ -191,8 +191,10 @@ namespace TheIsland.Visual
 
             var velocityOverLifetime = _fogSystem.velocityOverLifetime;
             velocityOverLifetime.enabled = true;
-            velocityOverLifetime.x = new ParticleSystem.MinMaxCurve(-0.2f, 0.2f);
-            velocityOverLifetime.y = new ParticleSystem.MinMaxCurve(0.05f, 0.1f);
+            // 所有轴使用相同的曲线模式 (Constant)
+            velocityOverLifetime.x = 0f;
+            velocityOverLifetime.y = 0.08f;
+            velocityOverLifetime.z = 0f;
 
             var colorOverLifetime = _fogSystem.colorOverLifetime;
             colorOverLifetime.enabled = true;
@@ -234,8 +236,10 @@ namespace TheIsland.Visual
 
             var velocityOverLifetime = _heatSystem.velocityOverLifetime;
             velocityOverLifetime.enabled = true;
+            // 所有轴使用相同的曲线模式 (Constant)
+            velocityOverLifetime.x = 0f;
             velocityOverLifetime.y = 1f;
-            velocityOverLifetime.x = new ParticleSystem.MinMaxCurve(-0.3f, 0.3f);
+            velocityOverLifetime.z = 0f;
 
             var colorOverLifetime = _heatSystem.colorOverLifetime;
             colorOverLifetime.enabled = true;
@@ -277,7 +281,10 @@ namespace TheIsland.Visual
 
             var velocityOverLifetime = _cloudSystem.velocityOverLifetime;
             velocityOverLifetime.enabled = true;
+            // 所有轴使用相同的曲线模式 (Constant)
             velocityOverLifetime.x = 0.3f;
+            velocityOverLifetime.y = 0f;
+            velocityOverLifetime.z = 0f;
 
             var renderer = cloudObj.GetComponent<ParticleSystemRenderer>();
             renderer.material = CreateCloudMaterial();
