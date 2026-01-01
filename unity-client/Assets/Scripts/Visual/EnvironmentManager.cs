@@ -56,7 +56,6 @@ namespace TheIsland.Visual
         [SerializeField] private Color waterShallowColor = new Color(0.3f, 0.8f, 0.9f, 0.8f);
         [SerializeField] private Color waterDeepColor = new Color(0.1f, 0.4f, 0.6f, 0.9f);
         [SerializeField] private float waveSpeed = 0.5f;
-        [SerializeField] private float waveAmplitude = 0.1f;
         [SerializeField] private Material customWaterMaterial; // Custom shader support
         #endregion
 

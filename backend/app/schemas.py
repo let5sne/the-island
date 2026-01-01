@@ -45,6 +45,16 @@ class EventType(str, Enum):
     RELATIONSHIP_CHANGE = "relationship_change"  # Relationship status changed
     AUTO_REVIVE = "auto_revive"          # Agent auto-revived (casual mode)
 
+    # Autonomous Agency (Phase 13)
+    AGENT_ACTION = "agent_action"        # Agent performs an action (move, gather, etc.)
+
+    # Crafting System (Phase 16)
+    CRAFT = "craft"                      # Agent crafted an item
+    USE_ITEM = "use_item"                # Agent used an item
+
+    # Random Events (Phase 17-C)
+    RANDOM_EVENT = "random_event"        # Random event occurred
+
 
 class GameEvent(BaseModel):
     """

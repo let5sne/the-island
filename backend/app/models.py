@@ -51,6 +51,18 @@ class Agent(Base):
     # Social attributes (Phase 5)
     social_tendency = Column(String(20), default="neutral")  # introvert, extrovert, neutral
 
+    # Autonomous Action (Phase 13)
+    current_action = Column(String(50), default="Idle")
+    location = Column(String(50), default="center")  # logical location: tree_left, tree_right, center, etc.
+    target_agent_id = Column(Integer, nullable=True) # if action targets another agent
+
+    # Survival (Phase 15)
+    is_sick = Column(Boolean, default=False)
+    immunity = Column(Integer, default=50) # 0-100, higher = less chance to get sick
+
+    # Relationship 2.0 (Phase 17-B)
+    social_role = Column(String(20), default="neutral")  # leader, follower, loner, neutral
+
     def __repr__(self):
         return f"<Agent {self.name} ({self.personality}) HP={self.hp} Energy={self.energy} Mood={self.mood}>"
 
@@ -71,7 +83,12 @@ class Agent(Base):
             "inventory": self.inventory,
             "mood": self.mood,
             "mood_state": self.mood_state,
-            "social_tendency": self.social_tendency
+            "social_tendency": self.social_tendency,
+            "current_action": self.current_action,
+            "location": self.location,
+            "is_sick": self.is_sick,
+            "immunity": self.immunity,
+            "social_role": self.social_role
         }
 
 
@@ -94,6 +111,10 @@ class WorldState(Base):
     # Weather system (Phase 3)
     weather_duration = Column(Integer, default=0)  # Ticks since last weather change
 
+    # Resource Scarcity (Phase 17-A)
+    tree_left_fruit = Column(Integer, default=5)   # Max 5 fruit
+    tree_right_fruit = Column(Integer, default=5)  # Max 5 fruit
+
     def __repr__(self):
         return f"<WorldState Day={self.day_count} {self.time_of_day} Weather={self.weather}>"
 
@@ -104,7 +125,9 @@ class WorldState(Base):
             "weather": self.weather,
             "resource_level": self.resource_level,
             "current_tick_in_day": self.current_tick_in_day,
-            "time_of_day": self.time_of_day
+            "time_of_day": self.time_of_day,
+            "tree_left_fruit": self.tree_left_fruit,
+            "tree_right_fruit": self.tree_right_fruit
         }
 
 
@@ -206,3 +229,39 @@ class AgentRelationship(Base):
             self.relationship_type = "friend"
         else:
             self.relationship_type = "close_friend"
+
+
+class AgentMemory(Base):
+    """
+    Long-term memory for agents.
+    Stores significant events, conversations, and interactions.
+    """
+    __tablename__ = "agent_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=False)
+    
+    # The memory content
+    description = Column(String(500), nullable=False)
+    
+    # Metadata for retrieval
+    importance = Column(Integer, default=1)  # 1-10
+    related_entity_id = Column(Integer, nullable=True) # ID of user or other agent involved
+    related_entity_name = Column(String(50), nullable=True)
+    memory_type = Column(String(20), default="general") # chat, gift, event, social
+    
+    created_at = Column(DateTime, default=func.now())
+    tick_created = Column(Integer, nullable=True)
+
+    def __repr__(self):
+        return f"<Memory {self.agent_id}: {self.description[:20]}... ({self.importance})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "agent_id": self.agent_id,
+            "description": self.description,
+            "importance": self.importance,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+

@@ -14,6 +14,7 @@ from .schemas import GameEvent, EventType
 from .database import init_db, get_db_session
 from .models import User, Agent, WorldState, GameConfig, AgentRelationship
 from .llm import llm_service
+from .memory_service import memory_service
 
 if TYPE_CHECKING:
     from .server import ConnectionManager
@@ -228,9 +229,14 @@ class GameEngine:
             if world.current_tick_in_day >= TICKS_PER_DAY:
                 world.current_tick_in_day = 0
                 world.day_count += 1
+                
+                # Phase 17-A: Regenerate resources
+                world.tree_left_fruit = min(5, world.tree_left_fruit + 2)
+                world.tree_right_fruit = min(5, world.tree_right_fruit + 2)
+                
                 await self._broadcast_event(EventType.DAY_CHANGE, {
                     "day": world.day_count,
-                    "message": f"Day {world.day_count} begins!"
+                    "message": f"Day {world.day_count} begins! Trees have new fruit."
                 })
 
             # Determine current phase
@@ -300,6 +306,55 @@ class GameEngine:
                     agent.mood_state = "anxious"
 
     # =========================================================================
+    # Relationship 2.0 (Phase 17-B)
+    # =========================================================================
+    async def _assign_social_roles(self) -> None:
+        """Assign social roles based on personality and social tendency."""
+        with get_db_session() as db:
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            
+            for agent in agents:
+                if agent.social_role != "neutral":
+                    continue  # Already assigned
+                
+                # Role assignment based on personality and tendency
+                if agent.social_tendency == "extrovert" and agent.mood > 60:
+                    agent.social_role = "leader"
+                elif agent.social_tendency == "introvert" and agent.mood < 40:
+                    agent.social_role = "loner"
+                elif random.random() < 0.3:
+                    agent.social_role = "follower"
+                # Otherwise stays neutral
+
+    async def _process_clique_behavior(self) -> None:
+        """Leaders influence followers' actions."""
+        # Run occasionally
+        if self._tick_count % 10 != 0:
+            return
+            
+        with get_db_session() as db:
+            leaders = db.query(Agent).filter(
+                Agent.status == "Alive",
+                Agent.social_role == "leader"
+            ).all()
+            
+            followers = db.query(Agent).filter(
+                Agent.status == "Alive", 
+                Agent.social_role == "follower"
+            ).all()
+            
+            for leader in leaders:
+                # Followers near leader copy their action
+                for follower in followers:
+                    if follower.current_action == "Idle" and leader.current_action not in ["Idle", None]:
+                        follower.current_action = leader.current_action
+                        follower.location = leader.location
+                        await self._broadcast_event(EventType.COMMENT, {
+                            "user": "System",
+                            "message": f"{follower.name} follows {leader.name}'s lead!"
+                        })
+
+    # =========================================================================
     # Survival mechanics
     # =========================================================================
     async def _process_survival_tick(self) -> None:
@@ -315,6 +370,45 @@ class GameEngine:
             alive_agents = db.query(Agent).filter(Agent.status == "Alive").all()
 
             for agent in alive_agents:
+                # --- Sickness Mechanics (Phase 15) ---
+                # 1. Contracting Sickness
+                if not agent.is_sick:
+                    sickness_chance = 0.01 # Base 1% per tick (every 5s)
+                    
+                    # Weather impact
+                    current_weather = world.weather if world else "Sunny"
+                    if current_weather == "Rainy":
+                        sickness_chance += 0.05
+                    elif current_weather == "Stormy":
+                        sickness_chance += 0.10
+                    
+                    # Immunity impact (Higher immunity = lower chance)
+                    # Immunity 50 -> -2.5%, Immunity 100 -> -5%
+                    sickness_chance -= (agent.immunity / 2000.0) 
+                    
+                    if random.random() < sickness_chance:
+                        agent.is_sick = True
+                        agent.mood -= 20
+                        logger.info(f"Agent {agent.name} has fallen sick!")
+                        # We could broadcast a specific event, but AGENTS_UPDATE will handle visual state
+                        # Just log it or maybe a system message?
+                        await self._broadcast_event(EventType.COMMENT, {
+                            "user": "System", 
+                            "message": f"{agent.name} is looking pale... (Sick)"
+                        })
+
+                # 2. Sickness Effects
+                if agent.is_sick:
+                    # Decay HP and Energy faster
+                    agent.hp = max(0, agent.hp - 2)
+                    agent.energy = max(0, agent.energy - 2)
+                    
+                    # Lower mood over time
+                    if self._tick_count % 5 == 0:
+                        agent.mood = max(0, agent.mood - 1)
+
+                # --- End Sickness ---
+
                 # Calculate energy decay with all modifiers
                 base_decay = BASE_ENERGY_DECAY_PER_TICK
                 decay = base_decay * config.energy_decay_multiplier
@@ -323,9 +417,9 @@ class GameEngine:
 
                 agent.energy = max(0, agent.energy - int(decay))
 
-                # HP recovery during day phases
+                # HP recovery during day phases (Only if NOT sick)
                 hp_recovery = phase_mod.get("hp_recovery", 0)
-                if hp_recovery > 0 and agent.energy > 20:
+                if hp_recovery > 0 and agent.energy > 20 and not agent.is_sick:
                     agent.hp = min(100, agent.hp + hp_recovery)
 
                 # Starvation damage
@@ -337,6 +431,9 @@ class GameEngine:
                 if agent.hp <= 0:
                     agent.status = "Dead"
                     agent.death_tick = self._tick_count
+                    if agent.is_sick:
+                        # Clear sickness on death
+                        agent.is_sick = False
                     deaths.append({"name": agent.name, "personality": agent.personality})
                     logger.info(f"Agent {agent.name} has died!")
 
@@ -346,6 +443,18 @@ class GameEngine:
                 "agent_name": death["name"],
                 "message": f"{death['name']} ({death['personality']}) has died..."
             })
+            
+            # Phase 14: Alive agents remember the death
+            with get_db_session() as db:
+                witnesses = db.query(Agent).filter(Agent.status == "Alive").all()
+                for witness in witnesses:
+                    await memory_service.add_memory(
+                        agent_id=witness.id,
+                        description=f"{death['name']} died. It was a sad day.",
+                        importance=8,
+                        related_entity_name=death["name"],
+                        memory_type="event"
+                    )
 
     async def _process_auto_revive(self) -> None:
         """Auto-revive dead agents in casual mode."""
@@ -498,6 +607,237 @@ class GameEngine:
             logger.error(f"Error in social dialogue: {e}")
 
     # =========================================================================
+    # Autonomous Agency (Phase 13)
+    # =========================================================================
+    async def _process_activity_tick(self) -> None:
+        """Decide and execute autonomous agent actions."""
+        # Only process activity every few ticks to avoid chaotic movement
+        if self._tick_count % 3 != 0:
+            return
+
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            if not world:
+                return
+
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            
+            for agent in agents:
+                new_action = agent.current_action
+                new_location = agent.location
+                target_name = None
+                should_update = False
+
+                # 1. Critical Needs (Override everything)
+                if world.time_of_day == "night":
+                    if agent.current_action != "Sleep":
+                        new_action = "Sleep"
+                        new_location = "campfire"
+                        should_update = True
+                elif agent.energy < 30:
+                    if agent.current_action != "Gather":
+                        new_action = "Gather"
+                        new_location = random.choice(["tree_left", "tree_right"])
+                        should_update = True
+                
+                # 1.5. Sickness Handling (Phase 16)
+                elif agent.is_sick:
+                    inv = self._get_inventory(agent)
+                    if inv.get("medicine", 0) > 0:
+                        # Use medicine immediately
+                        await self._use_medicine(agent)
+                        new_action = "Use Medicine"
+                        new_location = agent.location
+                        should_update = True
+                    elif inv.get("herb", 0) >= 3:
+                        # Craft medicine
+                        await self._craft_medicine(agent)
+                        new_action = "Craft Medicine"
+                        new_location = agent.location
+                        should_update = True
+                    elif agent.current_action != "Gather Herb":
+                        # Go gather herbs
+                        new_action = "Gather Herb"
+                        new_location = "herb_patch"
+                        should_update = True
+                
+                # 2. Mood / Social Needs
+                elif agent.mood < 40 and agent.current_action not in ["Sleep", "Gather", "Socialize", "Gather Herb"]:
+                    new_action = "Socialize"
+                    potential_friends = [a for a in agents if a.id != agent.id]
+                    if potential_friends:
+                        friend = random.choice(potential_friends)
+                        new_location = "agent"
+                        target_name = friend.name
+                        should_update = True
+                
+                # 3. Boredom / Wandering
+                elif agent.current_action == "Idle" or agent.current_action is None:
+                    if random.random() < 0.3:
+                        new_action = "Wander"
+                        new_location = "nearby"
+                        should_update = True
+                
+                # 4. Finish Tasks (Simulation)
+                elif agent.current_action == "Gather" and agent.energy >= 90:
+                    new_action = "Idle"
+                    new_location = "center"
+                    should_update = True
+                elif agent.current_action == "Gather" and agent.location in ["tree_left", "tree_right"]:
+                    # Phase 17-A: Consume fruit when gathering
+                    fruit_available = await self._consume_fruit(world, agent.location)
+                    if fruit_available:
+                        agent.energy = min(100, agent.energy + 30)
+                        new_action = "Idle"
+                        new_location = "center"
+                        should_update = True
+                    else:
+                        # No fruit! Try other tree or express frustration
+                        other_tree = "tree_right" if agent.location == "tree_left" else "tree_left"
+                        other_fruit = world.tree_right_fruit if agent.location == "tree_left" else world.tree_left_fruit
+                        if other_fruit > 0:
+                            new_action = "Gather"
+                            new_location = other_tree
+                            should_update = True
+                        else:
+                            # All trees empty!
+                            new_action = "Hungry"
+                            new_location = "center"
+                            should_update = True
+                            await self._broadcast_event(EventType.COMMENT, {
+                                "user": "System",
+                                "message": f"{agent.name} can't find any fruit! The trees are empty..."
+                            })
+                elif agent.current_action == "Sleep" and world.time_of_day != "night":
+                    new_action = "Wake Up"
+                    new_location = "center"
+                    should_update = True
+                elif agent.current_action == "Gather Herb":
+                    # Simulate herb gathering (add herbs)
+                    await self._gather_herb(agent)
+                    new_action = "Idle"
+                    new_location = "center"
+                    should_update = True
+
+                # Execute Update
+                if should_update:
+                    agent.current_action = new_action
+                    agent.location = new_location
+                    
+                    # Generate simple thought/bark
+                    dialogue = self._get_action_bark(agent, new_action, target_name)
+
+                    await self._broadcast_event(EventType.AGENT_ACTION, {
+                        "agent_id": agent.id,
+                        "agent_name": agent.name,
+                        "action_type": new_action,
+                        "location": new_location,
+                        "target_name": target_name,
+                        "dialogue": dialogue
+                    })
+
+    def _get_action_bark(self, agent: Agent, action: str, target: str = None) -> str:
+        """Get a simple bark text for an action."""
+        if action == "Sleep":
+            return random.choice(["Yawn... sleepy...", "Time to rest.", "Zzz..."])
+        elif action == "Gather":
+            return random.choice(["Hungry!", "Need food.", "Looking for coconuts..."])
+        elif action == "Gather Herb":
+            return random.choice(["I need herbs...", "Looking for medicine plants.", "Feeling sick..."])
+        elif action == "Craft Medicine":
+            return random.choice(["Let me make some medicine.", "Mixing herbs...", "Almost done!"])
+        elif action == "Use Medicine":
+            return random.choice(["Ahh, much better!", "Medicine tastes awful but works!", "Feeling cured!"])
+        elif action == "Socialize":
+            return f"Looking for {target}..." if target else "Need a friend."
+        elif action == "Wander":
+            return random.choice(["Hmm...", "Nice weather.", "Taking a walk."])
+        elif action == "Wake Up":
+            return "Good morning!"
+        return ""
+
+    # =========================================================================
+    # Inventory & Crafting (Phase 16)
+    # =========================================================================
+    def _get_inventory(self, agent: Agent) -> dict:
+        """Parse agent inventory JSON."""
+        import json
+        try:
+            return json.loads(agent.inventory) if agent.inventory else {}
+        except json.JSONDecodeError:
+            return {}
+
+    def _set_inventory(self, agent: Agent, inv: dict) -> None:
+        """Set agent inventory from dict."""
+        import json
+        agent.inventory = json.dumps(inv)
+
+    async def _consume_fruit(self, world: WorldState, location: str) -> bool:
+        """Consume fruit from a tree. Returns True if successful."""
+        if location == "tree_left":
+            if world.tree_left_fruit > 0:
+                world.tree_left_fruit -= 1
+                logger.info(f"Fruit consumed from tree_left. Remaining: {world.tree_left_fruit}")
+                return True
+        elif location == "tree_right":
+            if world.tree_right_fruit > 0:
+                world.tree_right_fruit -= 1
+                logger.info(f"Fruit consumed from tree_right. Remaining: {world.tree_right_fruit}")
+                return True
+        return False
+
+    async def _gather_herb(self, agent: Agent) -> None:
+        """Agent gathers herbs."""
+        inv = self._get_inventory(agent)
+        herbs_found = random.randint(1, 2)
+        inv["herb"] = inv.get("herb", 0) + herbs_found
+        self._set_inventory(agent, inv)
+        
+        await self._broadcast_event(EventType.AGENT_ACTION, {
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "action_type": "Gather Herb",
+            "location": "herb_patch",
+            "dialogue": f"Found {herbs_found} herbs!"
+        })
+        logger.info(f"Agent {agent.name} gathered {herbs_found} herbs. Total: {inv['herb']}")
+
+    async def _craft_medicine(self, agent: Agent) -> None:
+        """Agent crafts medicine from herbs."""
+        inv = self._get_inventory(agent)
+        if inv.get("herb", 0) >= 3:
+            inv["herb"] -= 3
+            inv["medicine"] = inv.get("medicine", 0) + 1
+            self._set_inventory(agent, inv)
+            
+            await self._broadcast_event(EventType.CRAFT, {
+                "agent_id": agent.id,
+                "agent_name": agent.name,
+                "item": "medicine",
+                "ingredients": {"herb": 3}
+            })
+            logger.info(f"Agent {agent.name} crafted medicine. Inventory: {inv}")
+
+    async def _use_medicine(self, agent: Agent) -> None:
+        """Agent uses medicine to cure sickness."""
+        inv = self._get_inventory(agent)
+        if inv.get("medicine", 0) > 0:
+            inv["medicine"] -= 1
+            self._set_inventory(agent, inv)
+            
+            agent.is_sick = False
+            agent.hp = min(100, agent.hp + 20)
+            agent.mood = min(100, agent.mood + 10)
+            
+            await self._broadcast_event(EventType.USE_ITEM, {
+                "agent_id": agent.id,
+                "agent_name": agent.name,
+                "item": "medicine",
+                "effect": "cured sickness"
+            })
+            logger.info(f"Agent {agent.name} used medicine and is cured!")
+
+    # =========================================================================
     # LLM-powered agent speech
     # =========================================================================
     async def _trigger_agent_speak(
@@ -648,12 +988,19 @@ class GameEngine:
 
             user.gold -= HEAL_COST
             old_hp = agent.hp
+            was_sick = agent.is_sick
+            
             agent.hp = min(100, agent.hp + HEAL_HP_RESTORE)
+            agent.is_sick = False # Cure sickness
+
+            msg = f"{username} healed {agent.name}!"
+            if was_sick:
+                msg = f"{username} cured {agent.name}'s sickness!"
 
             await self._broadcast_event(EventType.HEAL, {
                 "user": username, "agent_name": agent.name,
                 "hp_restored": agent.hp - old_hp, "agent_hp": agent.hp,
-                "user_gold": user.gold, "message": f"{username} healed {agent.name}!"
+                "user_gold": user.gold, "message": msg
             })
             await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
 
@@ -849,6 +1196,77 @@ class GameEngine:
             return
 
     # =========================================================================
+    # Random Events (Phase 17-C)
+    # =========================================================================
+    RANDOM_EVENTS = {
+        "storm_damage": {"weight": 30, "description": "A sudden storm damages the island!"},
+        "treasure_found": {"weight": 25, "description": "Someone found a buried treasure!"},
+        "beast_attack": {"weight": 20, "description": "A wild beast attacks the camp!"},
+        "rumor_spread": {"weight": 25, "description": "A rumor starts spreading..."},
+    }
+
+    async def _process_random_events(self) -> None:
+        """Process random events (10% chance per day at dawn)."""
+        # Only trigger at dawn (once per day)
+        if self._tick_count % 100 != 1:  # Roughly once every ~100 ticks
+            return
+        
+        if random.random() > 0.10:  # 10% chance
+            return
+
+        # Pick random event
+        events = list(self.RANDOM_EVENTS.keys())
+        weights = [self.RANDOM_EVENTS[e]["weight"] for e in events]
+        event_type = random.choices(events, weights=weights)[0]
+
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            
+            if not agents:
+                return
+
+            event_data = {"event_type": event_type, "message": ""}
+
+            if event_type == "storm_damage":
+                # All agents lose HP and resources depleted
+                for agent in agents:
+                    agent.hp = max(0, agent.hp - 15)
+                if world:
+                    world.tree_left_fruit = max(0, world.tree_left_fruit - 2)
+                    world.tree_right_fruit = max(0, world.tree_right_fruit - 2)
+                event_data["message"] = "A violent storm hits! Everyone is injured and fruit trees are damaged."
+
+            elif event_type == "treasure_found":
+                # Random agent finds treasure (bonus herbs/medicine)
+                lucky = random.choice(agents)
+                inv = self._get_inventory(lucky)
+                inv["medicine"] = inv.get("medicine", 0) + 2
+                inv["herb"] = inv.get("herb", 0) + 3
+                self._set_inventory(lucky, inv)
+                event_data["message"] = f"{lucky.name} found a buried treasure with medicine and herbs!"
+                event_data["agent_name"] = lucky.name
+
+            elif event_type == "beast_attack":
+                # Random agent gets attacked
+                victim = random.choice(agents)
+                victim.hp = max(0, victim.hp - 25)
+                victim.mood = max(0, victim.mood - 20)
+                event_data["message"] = f"A wild beast attacked {victim.name}!"
+                event_data["agent_name"] = victim.name
+
+            elif event_type == "rumor_spread":
+                # Random relationship impact
+                if len(agents) >= 2:
+                    a1, a2 = random.sample(list(agents), 2)
+                    a1.mood = max(0, a1.mood - 10)
+                    a2.mood = max(0, a2.mood - 10)
+                    event_data["message"] = f"A rumor about {a1.name} and {a2.name} is spreading..."
+
+            await self._broadcast_event(EventType.RANDOM_EVENT, event_data)
+            logger.info(f"Random event triggered: {event_type}")
+
+    # =========================================================================
     # Game loop
     # =========================================================================
     async def _game_loop(self) -> None:
@@ -888,8 +1306,18 @@ class GameEngine:
             # 5. Update moods (Phase 3)
             await self._update_moods()
 
-            # 6. Social interactions (Phase 5)
+            # 6. Autonomous Activity (Phase 13)
+            await self._process_activity_tick()
+
+            # 7. Social interactions (Phase 5)
             await self._process_social_tick()
+
+            # 8. Random Events (Phase 17-C)
+            await self._process_random_events()
+
+            # 9. Clique Behavior (Phase 17-B)
+            await self._assign_social_roles()
+            await self._process_clique_behavior()
 
             # 7. Idle chat
             with get_db_session() as db:
@@ -984,8 +1412,19 @@ class GameEngine:
             agent_personality=agent_personality,
             gift_name=gift_type
         )
+
+        # 3. Store Memory (Phase 14)
+        if agent:
+            memory_text = f"User {user} gave me {amount} {gift_type}. I felt grateful."
+            await memory_service.add_memory(
+                agent_id=agent.id,
+                description=memory_text,
+                importance=random.randint(6, 9), # Gifts are important
+                related_entity_name=user,
+                memory_type="gift"
+            )
         
-        # 3. Broadcast gift effect to Unity
+        # 4. Broadcast gift effect to Unity
         await self._broadcast_event("gift_effect", {
             "user": user,
             "gift_type": gift_type,

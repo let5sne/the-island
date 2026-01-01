@@ -68,6 +68,10 @@ namespace TheIsland.Network
         public event Action<SocialInteractionData> OnSocialInteraction;
         public event Action<WorldStateData> OnWorldUpdate;
         public event Action<GiftEffectData> OnGiftEffect;  // Phase 8: Gift/Donation effects
+        public event Action<AgentActionData> OnAgentAction; // Phase 13: Autonomous Actions
+        public event Action<CraftEventData> OnCraft;        // Phase 16: Crafting
+        public event Action<UseItemEventData> OnUseItem;    // Phase 16: Using items
+        public event Action<RandomEventData> OnRandomEvent; // Phase 17-C: Random Events
         #endregion
 
         #region Private Fields
@@ -349,9 +353,30 @@ namespace TheIsland.Network
                         OnGiftEffect?.Invoke(giftData);
                         break;
 
+                    case EventTypes.AGENT_ACTION:
+                        var actionData = JsonUtility.FromJson<AgentActionData>(dataJson);
+                        OnAgentAction?.Invoke(actionData);
+                        break;
+
+                    case EventTypes.CRAFT:
+                        var craftData = JsonUtility.FromJson<CraftEventData>(dataJson);
+                        OnCraft?.Invoke(craftData);
+                        break;
+
+                    case EventTypes.USE_ITEM:
+                        var useItemData = JsonUtility.FromJson<UseItemEventData>(dataJson);
+                        OnUseItem?.Invoke(useItemData);
+                        break;
+
                     case EventTypes.COMMENT:
                         // Comments can be logged but typically not displayed in 3D
                         Debug.Log($"[Chat] {json}");
+                        break;
+
+                    case EventTypes.RANDOM_EVENT:
+                        var randomEventData = JsonUtility.FromJson<RandomEventData>(dataJson);
+                        OnRandomEvent?.Invoke(randomEventData);
+                        Debug.Log($"[Random Event] {randomEventData.event_type}: {randomEventData.message}");
                         break;
 
                     default:

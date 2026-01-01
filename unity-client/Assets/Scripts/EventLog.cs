@@ -38,7 +38,6 @@ namespace TheIsland.UI
         private List<GameObject> _entries = new List<GameObject>();
         private bool _visible = true;
         private int _unread = 0;
-        private bool _ready = false;
 
         private void Awake()
         {
@@ -83,7 +82,6 @@ namespace TheIsland.UI
             if (NetworkManager.Instance != null)
             {
                 SubscribeEvents();
-                _ready = true;
                 AddLog("事件日志已就绪", Color.yellow);
                 Debug.Log("[EventLog] 初始化完成");
             }

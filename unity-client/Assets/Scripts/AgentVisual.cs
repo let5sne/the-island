@@ -69,6 +69,7 @@ namespace TheIsland.Visual
         #region State
         private int _agentId;
         private AgentData _currentData;
+        private string _moodState = "neutral";
         private Coroutine _speechCoroutine;
 
         // Animation state
@@ -76,6 +77,11 @@ namespace TheIsland.Visual
         private float _breathScale = 1f;
         private Vector3 _originalSpriteScale;
         private float _bobOffset;
+
+        // Movement state
+        private Vector3 _targetPosition;
+        private bool _isMoving;
+        private float _moveSpeed = 3f;
         #endregion
 
         #region Properties
@@ -95,6 +101,29 @@ namespace TheIsland.Visual
         {
             if (!IsAlive) return;
 
+            // Handle Movement
+            if (_isMoving)
+            {
+                transform.position = Vector3.MoveTowards(transform.position, _targetPosition, _moveSpeed * Time.deltaTime);
+
+                // Flip sprite based on direction
+                if (_spriteRenderer != null)
+                {
+                    float dx = _targetPosition.x - transform.position.x;
+                    if (Mathf.Abs(dx) > 0.1f)
+                    {
+                        // FlipX = true means face Left (assuming sprite faces Right by default)
+                        // If sprite faces Front, we might need a different approach, but FlipX is standard for 2D.
+                        _spriteRenderer.flipX = dx < 0;
+                    }
+                }
+
+                if (Vector3.Distance(transform.position, _targetPosition) < 0.05f)
+                {
+                    _isMoving = false;
+                }
+            }
+
             // Idle breathing animation (Squash and Stretch)
             _idleAnimTimer += Time.deltaTime;
             
@@ -103,8 +132,16 @@ namespace TheIsland.Visual
             _breathScale = 1f + breath;
             float antiBreath = 1f - (breath * 0.5f); // Squash X when stretching Y
 
-            // Bobbing: Move up and down
-            _bobOffset = Mathf.Sin(_idleAnimTimer * 2f) * 0.08f;
+            // Bobbing: Move up and down (only when idle)
+            if (!_isMoving)
+            {
+                _bobOffset = Mathf.Sin(_idleAnimTimer * 2f) * 0.08f;
+            }
+            else
+            {
+                // Hop while moving
+                _bobOffset = Mathf.Abs(Mathf.Sin(_idleAnimTimer * 10f)) * 0.2f;
+            }
 
             if (_spriteRenderer != null && _originalSpriteScale != Vector3.zero)
             {
@@ -126,6 +163,18 @@ namespace TheIsland.Visual
         public void DoJump()
         {
             StartCoroutine(JumpRoutine());
+        }
+
+        public void MoveTo(Vector3 target)
+        {
+            _targetPosition = target;
+            // Keep current Y (height) to avoid sinking/flying, unless target specifies it
+            // Actually our agents are on navmesh or free moving? Free moving for now.
+            // But we want to keep them on the "ground" plane roughly.
+            // Let's preserve current Y if target Y is 0 (which usually means undefined in 2D topdown logic, but here we are 2.5D)
+            // The spawn positions have Y=0.
+            _targetPosition.y = transform.position.y; 
+            _isMoving = true;
         }
 
         private IEnumerator JumpRoutine()
@@ -438,7 +487,27 @@ namespace TheIsland.Visual
             for (int x = (int)(center.x - smileWidth); x <= (int)(center.x + smileWidth); x++)
             {
                 float t = (x - center.x + smileWidth) / (smileWidth * 2);
-                int y = (int)(center.y - Mathf.Sin(t * Mathf.PI) * 2);
+                int y = (int)center.y;
+
+                // Mouth shape based on mood
+                if (_moodState == "happy")
+                {
+                    y = (int)(center.y - Mathf.Sin(t * Mathf.PI) * 2);
+                }
+                else if (_moodState == "sad")
+                {
+                    y = (int)(center.y - 2 + Mathf.Sin(t * Mathf.PI) * 2);
+                }
+                else if (_moodState == "anxious")
+                {
+                    // Wavy mouth
+                    y = (int)(center.y + Mathf.Sin(t * Mathf.PI * 3) * 1);
+                }
+                else // neutral
+                {
+                    y = (int)(center.y);
+                }
+
                 if (x >= 0 && x < width && y >= 0 && y < height)
                 {
                     pixels[y * width + x] = mouthColor;
@@ -880,6 +949,17 @@ namespace TheIsland.Visual
                 _moodBarFill.rectTransform.anchorMax = new Vector2(moodPercent, 1);
                 _moodBarFill.color = GetMoodColor(data.mood_state);
             }
+
+            // Check for mood change (Visual Expression)
+            if (_moodState != data.mood_state)
+            {
+                _moodState = data.mood_state;
+                // Only regenerate if using placeholder sprite
+                if (characterSprite == null && _spriteRenderer != null)
+                {
+                    RegeneratePlaceholderSprite();
+                }
+            }
             if (_moodText != null)
             {
                 string moodIndicator = GetMoodEmoji(data.mood_state);
@@ -943,11 +1023,42 @@ namespace TheIsland.Visual
         {
             if (_deathOverlay != null) _deathOverlay.SetActive(false);
 
-            // Restore sprite color
+            // Restore sprite color based on state
             if (_spriteRenderer != null)
             {
-                _spriteRenderer.color = Color.white;
+                Color targetColor = spriteColor;
+
+                // Phase 15: Sickness visual (Green tint)
+                if (_currentData != null && _currentData.is_sick)
+                {
+                    targetColor = Color.Lerp(targetColor, Color.green, 0.4f);
+                }
+
+                _spriteRenderer.color = targetColor;
             }
+
+            // Phase 17-B: Update social role display
+            UpdateSocialRoleDisplay();
+        }
+
+        /// <summary>
+        /// Display social role indicator based on agent's role.
+        /// </summary>
+        private void UpdateSocialRoleDisplay()
+        {
+            if (_currentData == null || _nameLabel == null) return;
+
+            string roleIcon = _currentData.social_role switch
+            {
+                "leader" => " <color=#FFD700>★</color>",    // Gold star
+                "loner" => " <color=#808080>☁</color>",    // Gray cloud
+                "follower" => " <color=#87CEEB>→</color>", // Sky blue arrow
+                _ => ""
+            };
+
+            // Append role icon to name (strip any existing icons first)
+            string baseName = _currentData.name;
+            _nameLabel.text = baseName + roleIcon;
         }
         #endregion
 

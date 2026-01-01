@@ -153,6 +153,8 @@ namespace TheIsland.Core
             network.OnRevive += HandleRevive;
             network.OnSocialInteraction += HandleSocialInteraction;
             network.OnGiftEffect += HandleGiftEffect;  // Phase 8
+            network.OnAgentAction += HandleAgentAction; // Phase 13
+            network.OnRandomEvent += HandleRandomEvent; // Phase 17-C
         }
 
         private void UnsubscribeFromNetworkEvents()
@@ -180,6 +182,7 @@ namespace TheIsland.Core
             network.OnRevive -= HandleRevive;
             network.OnSocialInteraction -= HandleSocialInteraction;
             network.OnGiftEffect -= HandleGiftEffect;  // Phase 8
+            network.OnRandomEvent -= HandleRandomEvent; // Phase 17-C
         }
         #endregion
 
@@ -536,6 +539,92 @@ namespace TheIsland.Core
             // Show notification
             ShowNotification(data.message);
         }
+        #region Agent Action (Phase 13)
+        private void HandleAgentAction(AgentActionData data)
+        {
+            Debug.Log($"[GameManager] Action: {data.agent_name} -> {data.action_type} at {data.location}");
+
+            // Resolve target position
+            Vector3 targetPos = GetLocationPosition(data.location, data.target_name);
+
+            // Find agent and command movement
+            if (_agentVisuals.TryGetValue(data.agent_id, out AgentVisual agentVisual))
+            {
+                agentVisual.MoveTo(targetPos);
+                
+                // Optional: Show thought bubble or speech
+                if (!string.IsNullOrEmpty(data.dialogue))
+                {
+                    agentVisual.ShowSpeech(data.dialogue, 3f);
+                }
+            }
+            else if (_agentUIs.TryGetValue(data.agent_id, out AgentUI agentUI))
+            {
+                // Fallback for UI-only agents (just show speech)
+                 if (!string.IsNullOrEmpty(data.dialogue))
+                {
+                    agentUI.ShowSpeech(data.dialogue);
+                }
+            }
+        }
+
+        private Vector3 GetLocationPosition(string location, string targetName)
+        {
+            // Map logical locations to world coordinates
+            switch (location.ToLower())
+            {
+                case "tree_left":
+                    return new Vector3(-10f, 0f, 8f);
+                case "tree_right":
+                    return new Vector3(10f, 0f, 8f);
+                case "campfire":
+                case "center":
+                    return new Vector3(0f, 0f, 0f);
+                case "water":
+                case "beach":
+                    return new Vector3(Random.Range(-5, 5), 0f, 4f);
+                case "nearby":
+                     // Move to random nearby spot (wandering)
+                    return new Vector3(Random.Range(-12, 12), 0f, Random.Range(-2, 6));
+                case "herb_patch":
+                    // Phase 16: Herb gathering location
+                    return new Vector3(-8f, 0f, -5f);
+                case "agent":
+                    // Move to another agent
+                    int targetId = GetAgentIdByName(targetName);
+                    if (targetId >= 0 && _agentVisuals.TryGetValue(targetId, out AgentVisual target))
+                    {
+                        // Stand slightly offset from target
+                        return target.transform.position + new Vector3(1.5f, 0, 0); 
+                    }
+                    return Vector3.zero;
+                default:
+                    return new Vector3(0f, 0f, 0f); // Fallback to center
+            }
+        }
+        #endregion
+
+        #region Random Events (Phase 17-C)
+        private void HandleRandomEvent(RandomEventData data)
+        {
+            Debug.Log($"[GameManager] Random Event: {data.event_type} - {data.message}");
+
+            // Display global notification banner
+            string eventIcon = data.event_type switch
+            {
+                "storm_damage" => "⛈️ ",
+                "treasure_found" => "💎 ",
+                "beast_attack" => "🐺 ",
+                "rumor_spread" => "💬 ",
+                _ => ""
+            };
+
+            ShowNotification(eventIcon + data.message);
+
+            // Optional: Trigger visual effects based on event type
+            // (Could add screen shake for storm, highlight agent for treasure, etc.)
+        }
+        #endregion
         #endregion
 
         #region Agent Management

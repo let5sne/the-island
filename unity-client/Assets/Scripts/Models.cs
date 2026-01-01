@@ -48,6 +48,17 @@ namespace TheIsland.Models
         public string mood_state;  // "happy", "neutral", "sad", "anxious"
         public string social_tendency;  // "introvert", "extrovert", "neutral"
 
+        // Survival (Phase 15)
+        public bool is_sick;
+        public int immunity;
+
+        // Autonomous Agency (Phase 13)
+        public string current_action;
+        public string location;
+
+        // Relationship 2.0 (Phase 17-B)
+        public string social_role;  // "leader", "follower", "loner", "neutral"
+
         public bool IsAlive => status == "Alive";
     }
 
@@ -138,6 +149,10 @@ namespace TheIsland.Models
         public int resource_level;
         public int current_tick_in_day;
         public string time_of_day;  // "dawn", "day", "dusk", "night"
+
+        // Resource Scarcity (Phase 17-A)
+        public int tree_left_fruit;
+        public int tree_right_fruit;
     }
 
     /// <summary>
@@ -311,5 +326,64 @@ namespace TheIsland.Models
 
         // Gift/Donation system (Phase 8)
         public const string GIFT_EFFECT = "gift_effect";
+
+        // Autonomous Agency (Phase 13)
+        public const string AGENT_ACTION = "agent_action";
+
+        // Crafting System (Phase 16)
+        public const string CRAFT = "craft";
+        public const string USE_ITEM = "use_item";
+
+        // Random Events (Phase 17-C)
+        public const string RANDOM_EVENT = "random_event";
+    }
+
+    /// <summary>
+    /// Agent action event data (Phase 13).
+    /// </summary>
+    [Serializable]
+    public class AgentActionData
+    {
+        public int agent_id;
+        public string agent_name;
+        public string action_type; // "Gather", "Sleep", "Socialize", "Wander", "Gather Herb", etc.
+        public string location;    // "tree_left", "campfire", "herb_patch", etc.
+        public string target_name; // For social actions
+        public string dialogue;    // Bark text
+    }
+
+    /// <summary>
+    /// Craft event data (Phase 16).
+    /// </summary>
+    [Serializable]
+    public class CraftEventData
+    {
+        public int agent_id;
+        public string agent_name;
+        public string item;        // "medicine"
+        public string ingredients; // JSON string of ingredients used
+    }
+
+    /// <summary>
+    /// Use item event data (Phase 16).
+    /// </summary>
+    [Serializable]
+    public class UseItemEventData
+    {
+        public int agent_id;
+        public string agent_name;
+        public string item;   // "medicine"
+        public string effect; // "cured sickness"
+    }
+
+    /// <summary>
+    /// Random event data (Phase 17-C).
+    /// </summary>
+    [Serializable]
+    public class RandomEventData
+    {
+        public string event_type;   // "storm_damage", "treasure_found", "beast_attack", "rumor_spread"
+        public string message;
+        public string agent_name;   // Optional: affected agent
     }
 }

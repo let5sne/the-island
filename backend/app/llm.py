@@ -27,6 +27,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .models import Agent
+    from .memory_service import MemoryService
+
+from .memory_service import memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -200,11 +203,16 @@ class LLMService:
             return self._get_mock_response(event_type)
 
         try:
+            # Retrieve relevant memories
+            memories = await memory_service.get_relevant_memories(agent.id, event_description)
+            memory_context = "\n".join(memories) if memories else "No relevant memories."
+
             system_prompt = (
                 f"You are {agent.name}. "
                 f"Personality: {agent.personality}. "
                 f"Current Status: HP={agent.hp}, Energy={agent.energy}. "
                 f"You live on a survival island. "
+                f"Relevant Memories:\n{memory_context}\n"
                 f"React to the following event briefly (under 20 words). "
                 f"Respond in first person, as if speaking out loud."
             )
@@ -347,10 +355,15 @@ class LLMService:
                        "calm and neutral" if agent_mood >= 40 else \
                        "a bit down" if agent_mood >= 20 else "anxious and worried"
 
+            # Retrieve relevant memories
+            memories = await memory_service.get_relevant_memories(agent.id, topic)
+            memory_context = "\n".join(memories) if memories else "No relevant memories."
+
             system_prompt = (
                 f"You are {agent_name}, a survivor on a deserted island. "
                 f"Personality: {agent_personality}. "
                 f"Current mood: {mood_desc} (mood level: {agent_mood}/100). "
+                f"Relevant Memories:\n{memory_context}\n"
                 f"A viewer named {username} wants to chat with you. "
                 f"Respond naturally in character (under 30 words). "
                 f"Be conversational and show your personality."
