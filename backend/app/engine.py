@@ -126,7 +126,11 @@ class GameEngine:
         self._running = False
         self._tick_count = 0
         self._tick_interval = TICK_INTERVAL
+        self._tick_interval = TICK_INTERVAL
         self._config: Optional[GameConfig] = None
+        # Phase 22: Contextual Dialogue System
+        # Key: agent_id (who needs to respond), Value: {partner_id, last_text, topic, expires_at_tick}
+        self._active_conversations = {}
 
     @property
     def is_running(self) -> bool:
@@ -665,13 +669,120 @@ class GameEngine:
                 **interaction_data,
                 "dialogue": dialogue
             })
+            
+            # Phase 22: Contextual Dialogue - Store context for responder
+            # Initiator just spoke. Target needs to respond next tick.
+            initiator_id = interaction_data["initiator_id"]
+            target_id = interaction_data["target_id"]
+            
+            # 50% chance to continue the conversation (A -> B -> A)
+            should_continue = True # For the first response (A->B), almost always yes unless "argue" maybe?
+            
+            if should_continue:
+                self._active_conversations[target_id] = {
+                    "partner_id": initiator_id,
+                    "last_text": dialogue,
+                    "topic": interaction_data["interaction_type"], # Rough topic
+                    "expires_at_tick": self._tick_count + 5 # Must respond within 5 ticks
+                }
 
         except Exception as e:
             logger.error(f"Error in social dialogue: {e}")
 
     # =========================================================================
-    # Autonomous Agency (Phase 13)
+    # Economy / Altruism (Phase 23)
     # =========================================================================
+    async def _process_altruism_tick(self) -> None:
+        """Process altruistic item sharing based on need."""
+        if random.random() > 0.5: # 50% chance per tick to check
+             return
+
+        with get_db_session() as db:
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            # Shuffle to avoid priority bias
+            random.shuffle(agents)
+
+            for giver in agents:
+                giver_inv = self._get_inventory(giver)
+                
+                # Check surplus
+                item_to_give = None
+                # Give Herb if have plenty
+                if giver_inv.get("herb", 0) >= 3:
+                     item_to_give = "herb"
+                # Give Food if have plenty and energy is high
+                elif giver_inv.get("food", 0) >= 1 and giver.energy > 80:
+                     item_to_give = "food"
+                
+                if not item_to_give:
+                     continue
+
+                # Find needy neighbor
+                for candidate in agents:
+                    if candidate.id == giver.id: continue
+                    
+                    cand_inv = self._get_inventory(candidate)
+                    score = 0
+                    
+                    if item_to_give == "herb":
+                        # High priority: Sick and no herbs
+                        if candidate.is_sick and cand_inv.get("herb", 0) == 0:
+                            score = 100
+                    elif item_to_give == "food":
+                         # High priority: Starving and no food
+                         if candidate.energy < 30 and cand_inv.get("food", 0) == 0:
+                            score = 50
+                    
+                    if score > 0:
+                        # Check relationship (don't give to enemies)
+                         rel = db.query(AgentRelationship).filter(
+                             AgentRelationship.agent_from_id == giver.id, 
+                             AgentRelationship.agent_to_id == candidate.id
+                         ).first()
+                         type_ = rel.relationship_type if rel else "stranger"
+                         if type_ in ["rival", "enemy"]:
+                             continue
+                         
+                         # Execute Give
+                         giver_inv[item_to_give] -= 1
+                         self._set_inventory(giver, giver_inv)
+                         
+                         cand_inv[item_to_give] = cand_inv.get(item_to_give, 0) + 1
+                         self._set_inventory(candidate, cand_inv)
+                         
+                         # Update Relationship (Giver -> Receiver)
+                         if not rel:
+                             rel = AgentRelationship(agent_from_id=giver.id, agent_to_id=candidate.id)
+                             db.add(rel)
+                         
+                         rel.affection = min(100, rel.affection + 10)
+                         rel.trust = min(100, rel.trust + 5)
+                         rel.interaction_count += 1
+                         rel.update_relationship_type()
+                         
+                         # Update Relationship (Receiver -> Giver)
+                         rel2 = db.query(AgentRelationship).filter(
+                             AgentRelationship.agent_from_id == candidate.id,
+                             AgentRelationship.agent_to_id == giver.id
+                         ).first()
+                         if not rel2:
+                              rel2 = AgentRelationship(agent_from_id=candidate.id, agent_to_id=giver.id)
+                              db.add(rel2)
+                         rel2.affection = min(100, rel2.affection + 8)
+                         rel2.trust = min(100, rel2.trust + 3)
+                         rel2.update_relationship_type()
+
+                         # Broadcast
+                         await self._broadcast_event(EventType.GIVE_ITEM, {
+                             "from_id": giver.id,
+                             "to_id": candidate.id,
+                             "item_type": item_to_give,
+                             "message": f"{giver.name} gave 1 {item_to_give} to {candidate.name}."
+                         })
+                         logger.info(f"{giver.name} gave {item_to_give} to {candidate.name}")
+                         
+                         # One action per agent per tick
+                         break
     async def _process_activity_tick(self) -> None:
         """Decide and execute autonomous agent actions."""
         # Only process activity every few ticks to avoid chaotic movement
@@ -689,10 +800,44 @@ class GameEngine:
                 new_action = agent.current_action
                 new_location = agent.location
                 target_name = None
+                target_name = None
                 should_update = False
 
+                # Phase 22: Handle Pending Conversations (High Priority)
+                if agent.id in self._active_conversations:
+                     pending = self._active_conversations[agent.id]
+                     # Check expiry
+                     if self._tick_count > pending["expires_at_tick"]:
+                         del self._active_conversations[agent.id]
+                     else:
+                         # Force response
+                         new_action = "Chat"
+                         new_location = agent.location # Stay put
+                         should_update = True
+                         
+                         # Generate Response Immediately
+                         partner = db.query(Agent).filter(Agent.id == pending["partner_id"]).first()
+                         if partner:
+                             target_name = partner.name
+                             # Generate reply
+                             # We consume the pending state so we don't loop forever
+                             previous_text = pending["last_text"]
+                             del self._active_conversations[agent.id]
+                             
+                             # Maybe add a chance for A to respond back to B (A-B-A)?
+                             # For simplicity, let's just do A-B for now, or 50% chance for A-B-A
+                             should_reply_back = random.random() < 0.5
+
+                             # Extract values before async task (avoid detached session issues)
+                             asyncio.create_task(self._process_conversation_reply(
+                                 agent.id, agent.name, partner.id, partner.name,
+                                 previous_text, pending["topic"], should_reply_back
+                             ))
+                         else:
+                             del self._active_conversations[agent.id] 
+
                 # 1. Critical Needs (Override everything)
-                if world.time_of_day == "night":
+                elif world.time_of_day == "night":
                     if agent.current_action != "Sleep":
                         new_action = "Sleep"
                         new_location = "campfire"
@@ -739,9 +884,18 @@ class GameEngine:
                         friend = random.choice(potential_friends)
                         new_location = "agent"
                         target_name = friend.name
+                        target_name = friend.name
                         should_update = True
                 
-                # Phase 21: Social Interaction (Group Dance)
+                # Phase 21-C: Advanced Social Locomotion (Follow)
+                # If "follower" role (or just feeling social), follow a friend/leader
+                elif agent.current_action not in ["Sleep", "Gather", "Dance", "Follow"] and random.random() < 0.15:
+                    target = self._find_follow_target(db, agent)
+                    if target:
+                        new_action = "Follow"
+                        new_location = "agent"
+                        target_name = target.name
+                        should_update = True
                 # If Happy (>80) and near others, chance to start dancing
                 elif agent.mood > 80 and agent.current_action != "Dance":
                     # Check for nearby agents (same location)
@@ -764,6 +918,9 @@ class GameEngine:
                         new_action = "Wander"
                         new_location = "nearby" # Will be randomized in Unity/GameManager mapping
                         should_update = True
+                    # Phase 23: Altruism - Give Item if needed (50% chance per tick to check)
+                    if random.random() < 0.5:
+                        await self._process_altruism_tick()
                     elif random.random() < 0.1:
                         new_action = "Idle"
                         should_update = True
@@ -844,7 +1001,38 @@ class GameEngine:
             return random.choice(["Hmm...", "Nice weather.", "Taking a walk."])
         elif action == "Wake Up":
             return "Good morning!"
+        elif action == "Wake Up":
+            return "Good morning!"
+        elif action == "Dance":
+            return random.choice(["Party time!", "Let's dance!", "Woo!"])
+        elif action == "Follow":
+            return f"Wait for me, {target}!"
         return ""
+
+    def _find_follow_target(self, db, agent: Agent) -> Optional[Agent]:
+        """Find a suitable target to follow (Leader or Friend)."""
+        # 1. Prefer Leaders
+        leader = db.query(Agent).filter(
+            Agent.social_role == "leader", 
+            Agent.status == "Alive",
+            Agent.id != agent.id
+        ).first()
+        
+        if leader and random.random() < 0.7:
+            return leader
+
+        # 2. Fallback to Close Friends
+        rels = db.query(AgentRelationship).filter(
+            AgentRelationship.agent_from_id == agent.id,
+            AgentRelationship.relationship_type.in_(["close_friend", "friend"])
+        ).all()
+        
+        if rels:
+            r = random.choice(rels)
+            target = db.query(Agent).filter(Agent.id == r.agent_to_id, Agent.status == "Alive").first()
+            return target
+            
+        return None
 
     # =========================================================================
     # Inventory & Crafting (Phase 16)
@@ -926,6 +1114,91 @@ class GameEngine:
                 "effect": "cured sickness"
             })
             logger.info(f"Agent {agent.name} used medicine and is cured!")
+
+    # =========================================================================
+    # Phase 24: Group Activities & Rituals
+    # =========================================================================
+    async def _process_campfire_gathering(self) -> None:
+        """Encourage agents to gather at campfire at night."""
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            if not world or world.time_of_day != "night":
+                return
+                
+            # Only run check occasionally to avoid spamming decision logic every tick if not needed
+            if self._tick_count % 5 != 0:
+                return
+
+            agents = db.query(Agent).filter(Agent.status == "Alive").all()
+            for agent in agents:
+                # If agent is critical, they will prioritize self-preservation in _process_activity_tick
+                # But if they are just idle or wandering, we nudge them to campfire
+                if agent.hp < 30 or agent.energy < 20 or agent.is_sick:
+                    continue
+                
+                # If already there, stay
+                if agent.location == "campfire":
+                    continue
+                    
+                # Force move to campfire "ritual"
+                # We update their "current_action" so the next tick they don't override it immediately
+                # But _process_activity_tick runs based on priorities. 
+                # To make this sticky, we might need a "GroupActivity" state or just rely on 
+                # tweaking the decision logic. For now, let's just forcefully set target if Idle.
+                if agent.current_action in ["Idle", "Wander"]:
+                    agent.current_action = "Gathering"
+                    agent.location = "campfire" # Teleport logic or Move logic? 
+                    # Actually, our decision logic sets location.
+                    # Let's just update location for simplicity as 'walking' is handled by frontend interpolation 
+                    # if the distance is small, but massive jumps might look weird. 
+                    # Ideally we set a goal. But for this engine, setting location IS the action result usually.
+                    pass 
+
+    async def _process_group_activity(self) -> None:
+        """Trigger storytelling if enough agents are at the campfire."""
+        # Only at night
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            if not world or world.time_of_day != "night":
+                return
+                
+            # Low probability check (don't spam stories)
+            if random.random() > 0.05:
+                return
+                
+            # Check who is at campfire
+            agents_at_fire = db.query(Agent).filter(
+                Agent.status == "Alive",
+                Agent.location == "campfire"
+            ).all()
+            
+            if len(agents_at_fire) < 2:
+                return
+                
+            # Select Storyteller (Highest Mood or Extrovert)
+            storyteller = max(agents_at_fire, key=lambda a: a.mood + (20 if a.social_tendency == 'extrovert' else 0))
+            listeners = [a for a in agents_at_fire if a.id != storyteller.id]
+            
+            # Generate Story
+            topics = ["the ghost ship", "the ancient ruins", "a strange dream", "the day we arrived"]
+            topic = random.choice(topics)
+            
+            story_content = await llm_service.generate_story(storyteller.name, topic)
+            
+            # Broadcast Event
+            await self._broadcast_event(EventType.GROUP_ACTIVITY, {
+                "activity_type": "storytelling",
+                "storyteller_id": storyteller.id,
+                "storyteller_name": storyteller.name,
+                "listener_ids": [l.id for l in listeners],
+                "content": story_content,
+                "topic": topic
+            })
+            
+            # Boost Mood for everyone involved
+            storyteller.mood = min(100, storyteller.mood + 10)
+            for listener in listeners:
+                listener.mood = min(100, listener.mood + 5)
 
     # =========================================================================
     # LLM-powered agent speech
@@ -1045,9 +1318,9 @@ class GameEngine:
 
         if feed_result:
             await self._broadcast_event(EventType.FEED, {
-                "user": username, "agent_name": feed_result["agent_name"],
-                "energy_restored": feed_result["actual_restore"],
-                "agent_energy": feed_result["agent_energy"], "user_gold": feed_result["user_gold"],
+                "user": username, "agent_name": feed_result['agent_name'],
+                "energy_restored": feed_result['actual_restore'],
+                "agent_energy": feed_result['agent_energy'], "user_gold": feed_result['user_gold'],
                 "message": f"{username} fed {feed_result['agent_name']}!"
             })
             await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": feed_result["user_gold"]})
@@ -1399,11 +1672,20 @@ class GameEngine:
             # 5. Update moods (Phase 3)
             await self._update_moods()
 
+            # Phase 24: Group Activities
+            # Check for campfire time (Night)
+            await self._process_campfire_gathering()
+            # Check for storytelling events
+            await self._process_group_activity()
+
             # 6. Autonomous Activity (Phase 13)
             await self._process_activity_tick()
 
             # 7. Social interactions (Phase 5)
             await self._process_social_tick()
+
+            # Phase 23: Altruism (Item Exchange)
+            await self._process_altruism_tick()
 
             # 8. Random Events (Phase 17-C)
             await self._process_random_events()
@@ -1533,3 +1815,57 @@ class GameEngine:
     async def process_bits(self, user: str, amount: int) -> None:
         """Deprecated: Use handle_gift instead."""
         await self.handle_gift(user, amount, "bits")
+    async def _process_conversation_reply(
+        self, responder_id: int, responder_name: str, partner_id: int, partner_name: str,
+        previous_text: str, topic: str, should_reply_back: bool
+    ) -> None:
+        """Handle the secondary turn of a conversation."""
+        try:
+             # Relationship
+             with get_db_session() as db:
+                 rel = db.query(AgentRelationship).filter(
+                     AgentRelationship.agent_from_id == responder_id,
+                     AgentRelationship.agent_to_id == partner_id
+                 ).first()
+                 rel_type = rel.relationship_type if rel else "acquaintance"
+
+                 # Basic world info
+                 world = db.query(WorldState).first()
+                 weather = world.weather if world else "Sunny"
+                 time_of_day = world.time_of_day if world else "day"
+
+             # Generate reply
+             # We use the same generate_social_interaction but with previous_dialogue set
+             # 'interaction_type' is reused as topic
+             reply = await llm_service.generate_social_interaction(
+                 initiator_name=responder_name,
+                 target_name=partner_name,
+                 interaction_type=topic,
+                 relationship_type=rel_type,
+                 weather=weather,
+                 time_of_day=time_of_day,
+                 previous_dialogue=previous_text
+             )
+
+             # Broadcast response
+             await self._broadcast_event(EventType.SOCIAL_INTERACTION, {
+                "initiator_id": responder_id,
+                "initiator_name": responder_name,
+                "target_id": partner_id,
+                "target_name": partner_name,
+                "interaction_type": "reply",
+                "relationship_type": rel_type,
+                "dialogue": reply
+            })
+
+             # Chain next turn?
+             if should_reply_back:
+                 self._active_conversations[partner_id] = {
+                    "partner_id": responder_id,
+                    "last_text": reply,
+                    "topic": topic,
+                    "expires_at_tick": self._tick_count + 5 # Must respond within 5 ticks
+                }
+
+        except Exception as e:
+            logger.error(f"Error in conversation reply: {e}")
