@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using TheIsland.Core;
 using TheIsland.Network;
@@ -74,6 +75,7 @@ namespace TheIsland.Visual
         private float _transitionProgress = 1f;
         private Color _targetSkyTop, _targetSkyBottom;
         private Color _currentSkyTop, _currentSkyBottom;
+        private List<Transform> _palmTrees = new List<Transform>();
         #endregion
 
         #region Unity Lifecycle
@@ -104,6 +106,9 @@ namespace TheIsland.Visual
 
             // Set initial sky
             UpdateSkyColors();
+
+            // Phase 19-B: Cache palm trees for animation
+            CachePalmTrees();
 
             // Phase 19: Add Visual Effects Manager
             if (FindObjectOfType<VisualEffectsManager>() == null)
@@ -471,7 +476,8 @@ namespace TheIsland.Visual
             var trunkRenderer = trunkSprite.AddComponent<SpriteRenderer>();
             trunkRenderer.sprite = CreateTreeSprite();
             trunkRenderer.sortingOrder = -20;
-            trunkSprite.transform.localScale = new Vector3(scale * 0.5f, scale, 1);
+            // Phase 19-B: Uniform scale to avoid distortion
+            trunkSprite.transform.localScale = new Vector3(scale, scale, 1);
         }
 
         private Texture2D _envTexture;
@@ -484,6 +490,30 @@ namespace TheIsland.Visual
                 byte[] data = System.IO.File.ReadAllBytes(path);
                 _envTexture = new Texture2D(2, 2);
                 _envTexture.LoadImage(data);
+                
+                // Phase 19-B: Fix white background transparency
+                ProcessTransparency(_envTexture);
+            }
+        }
+
+        private void ProcessTransparency(Texture2D tex)
+        {
+            if (tex == null) return;
+            Color[] pixels = tex.GetPixels();
+            bool changed = false;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                // If the pixel is very close to white, make it transparent
+                if (pixels[i].r > 0.92f && pixels[i].g > 0.92f && pixels[i].b > 0.92f)
+                {
+                    pixels[i] = Color.clear;
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                tex.SetPixels(pixels);
+                tex.Apply();
             }
         }
 
@@ -530,6 +560,18 @@ namespace TheIsland.Visual
             return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0));
         }
 
+        private void CachePalmTrees()
+        {
+            _palmTrees.Clear();
+            foreach (Transform child in transform)
+            {
+                if (child.name == "PalmTree")
+                {
+                    _palmTrees.Add(child);
+                }
+            }
+        }
+
         private void AnimateEnvironment()
         {
             // Water animation
@@ -540,16 +582,15 @@ namespace TheIsland.Visual
             }
 
             // Tree swaying animation
-            // Find all palm tree objects (simple lookup by name since we created them)
-            // Ideally we'd cache these, but for this scale it's fine
-            foreach (Transform child in transform)
+            float weatherIntensity = (_currentWeather == "Stormy" || _currentWeather == "Rainy") ? 2.5f : 1.0f;
+            float time = Time.time;
+            
+            foreach (var tree in _palmTrees)
             {
-                if (child.name == "PalmTree")
-                {
-                    // Sway rotation
-                    float sway = Mathf.Sin(Time.time * 1.5f + child.position.x) * 2.0f;
-                    child.rotation = Quaternion.Euler(0, 0, sway);
-                }
+                if (tree == null) continue;
+                // Sway rotation with slight variation per tree position
+                float sway = Mathf.Sin(time * 1.5f + tree.position.x * 0.5f) * 2.0f * weatherIntensity;
+                tree.rotation = Quaternion.Euler(0, 0, sway);
             }
         }
 
