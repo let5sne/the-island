@@ -7,7 +7,9 @@ Configures the application, WebSocket routes, and lifecycle events.
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from fastapi.responses import FileResponse
 from .server import ConnectionManager
 from .engine import GameEngine
 from .schemas import GameEvent, ClientMessage, EventType
+from .twitch_service import TwitchBot
 
 # Configure logging
 logging.basicConfig(
@@ -39,12 +42,39 @@ FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    Starts the game engine on startup and stops it on shutdown.
+    Starts the game engine and Twitch bot on startup, stops them on shutdown.
     """
     logger.info("Starting application...")
+    
+    # Start game engine
     await engine.start()
+    
+    # Start Twitch bot if credentials are provided
+    twitch_bot = None
+    if os.getenv("TWITCH_TOKEN") and os.getenv("TWITCH_CHANNEL_NAME"):
+        try:
+            twitch_bot = TwitchBot(engine)
+            # Start bot in background task
+            asyncio.create_task(twitch_bot.start())
+            logger.info("Twitch bot started in background")
+        except Exception as e:
+            logger.error(f"Failed to start Twitch bot: {e}")
+    else:
+        logger.info("Twitch credentials not provided, skipping Twitch bot")
+    
     yield
+    
     logger.info("Shutting down application...")
+    
+    # Stop Twitch bot if it was started
+    if twitch_bot:
+        try:
+            await twitch_bot.close()
+            logger.info("Twitch bot stopped")
+        except Exception as e:
+            logger.error(f"Error stopping Twitch bot: {e}")
+    
+    # Stop game engine
     await engine.stop()
 
 
