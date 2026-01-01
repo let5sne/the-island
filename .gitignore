@@ -49,3 +49,5 @@ unity-client/*.VC.db
 
 # Serena AI
 .serena/
+unity-client/Assets/_Recovery/
+unity-client/Assets/_Recovery.meta
