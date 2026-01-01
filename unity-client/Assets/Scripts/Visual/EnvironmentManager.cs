@@ -86,6 +86,7 @@ namespace TheIsland.Visual
             }
             _instance = this;
 
+            LoadEnvironmentTexture();
             _mainCamera = Camera.main;
             CreateEnvironment();
         }
@@ -103,6 +104,12 @@ namespace TheIsland.Visual
 
             // Set initial sky
             UpdateSkyColors();
+
+            // Phase 19: Add Visual Effects Manager
+            if (FindObjectOfType<VisualEffectsManager>() == null)
+            {
+                new GameObject("VisualEffectsManager").AddComponent<VisualEffectsManager>();
+            }
         }
 
         private void Update()
@@ -116,9 +123,56 @@ namespace TheIsland.Visual
                 UpdateSkyMaterial();
             }
 
+            // Phase 19: Cinematic Lighting
+            AnimateLighting();
+
             // Animate environment (Water & Trees)
             AnimateEnvironment();
             AnimateClouds();
+        }
+
+        private void AnimateLighting()
+        {
+            if (_mainLight == null) return;
+
+            // Simple 120s cycle for demonstration (30s per phase)
+            float cycleDuration = 120f;
+            float t = (Time.time % cycleDuration) / cycleDuration;
+
+            // t: 0=Dawn, 0.25=Noon, 0.5=Dusk, 0.75=Midnight
+            float intensity = 1f;
+            Color lightColor = Color.white;
+
+            if (t < 0.2f) // Dawn
+            {
+                float p = t / 0.2f;
+                intensity = Mathf.Lerp(0.5f, 1.2f, p);
+                lightColor = Color.Lerp(new Color(1f, 0.6f, 0.4f), Color.white, p);
+            }
+            else if (t < 0.5f) // Day
+            {
+                intensity = 1.2f;
+                lightColor = Color.white;
+            }
+            else if (t < 0.7f) // Dusk
+            {
+                float p = (t - 0.5f) / 0.2f;
+                intensity = Mathf.Lerp(1.2f, 0.4f, p);
+                lightColor = Color.Lerp(Color.white, new Color(1f, 0.4f, 0.2f), p);
+            }
+            else // Night
+            {
+                float p = (t - 0.7f) / 0.3f;
+                intensity = Mathf.Lerp(0.4f, 0.2f, p);
+                lightColor = new Color(0.4f, 0.5f, 1f); // Moonlight
+            }
+
+            _mainLight.intensity = intensity;
+            _mainLight.color = lightColor;
+
+            // Rotate sun
+            float sunAngle = t * 360f - 90f;
+            _mainLight.transform.rotation = Quaternion.Euler(sunAngle, -30f, 0);
         }
 
         private void OnDestroy()
@@ -338,11 +392,14 @@ namespace TheIsland.Visual
                 for (int x = 0; x < size; x++)
                 {
                     float t = (float)y / size;
-                    Color baseColor = Color.Lerp(waterShallowColor, waterDeepColor, t);
+                    // Add some noise to the base color
+                    float n = Mathf.PerlinNoise(x * 0.05f, y * 0.05f) * 0.1f;
+                    Color baseColor = Color.Lerp(waterShallowColor, waterDeepColor, t + n);
 
-                    // Add wave highlights
-                    float wave = Mathf.Sin(x * 0.2f + y * 0.1f) * 0.5f + 0.5f;
-                    baseColor = Color.Lerp(baseColor, Color.white, wave * 0.1f);
+                    // Add caustic-like highlights
+                    float wave1 = Mathf.Sin(x * 0.15f + y * 0.05f + Time.time * 0.2f) * 0.5f + 0.5f;
+                    float wave2 = Mathf.Cos(x * 0.08f - y * 0.12f + Time.time * 0.15f) * 0.5f + 0.5f;
+                    baseColor = Color.Lerp(baseColor, Color.white, (wave1 * wave2) * 0.15f);
 
                     tex.SetPixel(x, y, baseColor);
                 }
@@ -356,8 +413,11 @@ namespace TheIsland.Visual
             if (_waterMaterial == null) return;
 
             // Simple UV scrolling for wave effect
-            float offset = Time.time * waveSpeed * 0.1f;
-            _waterMaterial.mainTextureOffset = new Vector2(offset, offset * 0.5f);
+            float offset = Time.time * waveSpeed * 0.05f;
+            _waterMaterial.mainTextureOffset = new Vector2(offset, offset * 0.3f);
+            
+            // Periodically update texture for dynamic caustic effect (expensive but looks premium)
+            // Or just use the original UV scrolling if performance is an issue.
         }
 
         private void CreateLighting()
@@ -414,8 +474,27 @@ namespace TheIsland.Visual
             trunkSprite.transform.localScale = new Vector3(scale * 0.5f, scale, 1);
         }
 
+        private Texture2D _envTexture;
+
+        private void LoadEnvironmentTexture()
+        {
+            string path = Application.dataPath + "/Sprites/Environment.png";
+            if (System.IO.File.Exists(path))
+            {
+                byte[] data = System.IO.File.ReadAllBytes(path);
+                _envTexture = new Texture2D(2, 2);
+                _envTexture.LoadImage(data);
+            }
+        }
+
         private Sprite CreateTreeSprite()
         {
+            if (_envTexture != null)
+            {
+                // Slice palm tree (Assuming it's in the top-left quadrant of the collection)
+                return Sprite.Create(_envTexture, new Rect(0, _envTexture.height / 2f, _envTexture.width / 2f, _envTexture.height / 2f), new Vector2(0.5f, 0f), 100f);
+            }
+
             int width = 64;
             int height = 128;
             Texture2D tex = new Texture2D(width, height);
@@ -530,6 +609,12 @@ namespace TheIsland.Visual
 
         private Sprite CreateRockSprite()
         {
+            if (_envTexture != null)
+            {
+                // Slice rock from Environment.png (Assuming bottom-right quadrant)
+                return Sprite.Create(_envTexture, new Rect(_envTexture.width / 2f, 0, _envTexture.width / 2f, _envTexture.height / 2f), new Vector2(0.5f, 0.5f), 100f);
+            }
+
             int size = 32;
             Texture2D tex = new Texture2D(size, size);
 
@@ -575,7 +660,16 @@ namespace TheIsland.Visual
         private void HandleWeatherChange(WeatherChangeData data)
         {
             _currentWeather = data.new_weather;
-            UpdateSkyColors();
+            Debug.Log($"[EnvironmentManager] Weather changed to: {_currentWeather}");
+            
+            // Notify VFX manager
+            if (VisualEffectsManager.Instance != null)
+            {
+                VisualEffectsManager.Instance.SetWeather(_currentWeather);
+            }
+
+            // Adjust lighting based on weather
+            UpdateSkyColors(); // This will use the new weather in its logic
         }
 
         private void HandleTick(TickData data)

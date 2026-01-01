@@ -215,6 +215,35 @@ class GameEngine:
     # =========================================================================
     # Day/Night cycle (Phase 2)
     # =========================================================================
+    async def _process_weather(self) -> None:
+        """Process weather transitions."""
+        with get_db_session() as db:
+            world = db.query(WorldState).first()
+            if not world:
+                return
+
+            world.weather_duration += 1
+            
+            # Should we transition?
+            if world.weather_duration >= random.randint(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION):
+                old_weather = world.weather
+                transitions = WEATHER_TRANSITIONS.get(old_weather, {"Sunny": 1.0})
+                
+                # Biased random choice
+                choices = list(transitions.keys())
+                weights = list(transitions.values())
+                new_weather = random.choices(choices, weights=weights, k=1)[0]
+                
+                if new_weather != old_weather:
+                    world.weather = new_weather
+                    world.weather_duration = 0
+                    
+                    await self._broadcast_event(EventType.WEATHER_CHANGE, {
+                        "old_weather": old_weather,
+                        "new_weather": new_weather,
+                        "message": f"The weather is changing to {new_weather}."
+                    })
+
     async def _advance_time(self) -> Optional[dict]:
         """Advance time and return phase change info if applicable."""
         with get_db_session() as db:

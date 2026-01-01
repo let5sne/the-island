@@ -151,11 +151,45 @@ namespace TheIsland.UI
             rect.sizeDelta = size;
             rect.anchoredPosition = Vector2.zero;
 
-            // Semi-transparent background
+            // Semi-transparent glass background
             var bg = panel.AddComponent<Image>();
-            bg.color = new Color(0, 0, 0, 0.5f);
+            bg.color = new Color(0.1f, 0.12f, 0.18f, 0.6f);
+
+            // Add border highlight
+            var border = new GameObject("Border");
+            border.transform.SetParent(panel.transform);
+            var bRect = border.AddComponent<RectTransform>();
+            bRect.anchorMin = Vector2.zero;
+            bRect.anchorMax = Vector2.one;
+            bRect.offsetMin = new Vector2(-1, -1);
+            bRect.offsetMax = new Vector2(1, 1);
+            var bImg = border.AddComponent<Image>();
+            bImg.color = new Color(1f, 1f, 1f, 0.1f);
+            border.transform.SetAsFirstSibling();
 
             return panel;
+        }
+
+        private float _currentHp;
+        private float _currentEnergy;
+
+        private void Update()
+        {
+            if (_hpBarFill != null && _currentData != null)
+            {
+                _currentHp = Mathf.Lerp(_currentHp, _currentData.hp, Time.deltaTime * 5f);
+                float hpPercent = _currentHp / 100f;
+                _hpBarFill.rectTransform.anchorMax = new Vector2(hpPercent, 1);
+                _hpBarFill.color = Color.Lerp(hpLowColor, hpHighColor, hpPercent);
+            }
+
+            if (_energyBarFill != null && _currentData != null)
+            {
+                _currentEnergy = Mathf.Lerp(_currentEnergy, _currentData.energy, Time.deltaTime * 5f);
+                float energyPercent = _currentEnergy / 100f;
+                _energyBarFill.rectTransform.anchorMax = new Vector2(energyPercent, 1);
+                _energyBarFill.color = Color.Lerp(energyLowColor, energyHighColor, energyPercent);
+            }
         }
 
         private TextMeshProUGUI CreateText(GameObject parent, string name, string text,
@@ -296,25 +330,11 @@ namespace TheIsland.UI
         {
             _currentData = data;
 
-            // Update HP
-            float hpPercent = data.hp / 100f;
-            if (_hpBarFill != null)
-            {
-                _hpBarFill.rectTransform.anchorMax = new Vector2(hpPercent, 1);
-                _hpBarFill.color = Color.Lerp(hpLowColor, hpHighColor, hpPercent);
-            }
             if (_hpText != null)
             {
                 _hpText.text = $"HP: {data.hp}";
             }
 
-            // Update Energy
-            float energyPercent = data.energy / 100f;
-            if (_energyBarFill != null)
-            {
-                _energyBarFill.rectTransform.anchorMax = new Vector2(energyPercent, 1);
-                _energyBarFill.color = Color.Lerp(energyLowColor, energyHighColor, energyPercent);
-            }
             if (_energyText != null)
             {
                 _energyText.text = $"Energy: {data.energy}";

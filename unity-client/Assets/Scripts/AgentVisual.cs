@@ -82,6 +82,14 @@ namespace TheIsland.Visual
         private Vector3 _targetPosition;
         private bool _isMoving;
         private float _moveSpeed = 3f;
+
+        // UI Smoothing (Phase 19)
+        private float _currentHpPercent;
+        private float _currentEnergyPercent;
+        private float _currentMoodPercent;
+        private float _targetHpPercent;
+        private float _targetEnergyPercent;
+        private float _targetMoodPercent;
         #endregion
 
         #region Properties
@@ -157,6 +165,35 @@ namespace TheIsland.Visual
                 pos.y = 1f + _bobOffset;
                 _spriteRenderer.transform.localPosition = pos;
             }
+
+            // Phase 19: Smooth UI Bar Transitions
+            UpdateSmoothBars();
+        }
+
+        private void UpdateSmoothBars()
+        {
+            float lerpSpeed = 5f * Time.deltaTime;
+            
+            if (_hpBarFill != null)
+            {
+                _currentHpPercent = Mathf.Lerp(_currentHpPercent, _targetHpPercent, lerpSpeed);
+                _hpBarFill.rectTransform.anchorMax = new Vector2(_currentHpPercent, 1);
+                _hpBarFill.color = Color.Lerp(hpLowColor, hpHighColor, _currentHpPercent);
+            }
+
+            if (_energyBarFill != null)
+            {
+                _currentEnergyPercent = Mathf.Lerp(_currentEnergyPercent, _targetEnergyPercent, lerpSpeed);
+                _energyBarFill.rectTransform.anchorMax = new Vector2(_currentEnergyPercent, 1);
+                _energyBarFill.color = Color.Lerp(energyLowColor, energyHighColor, _currentEnergyPercent);
+            }
+
+            if (_moodBarFill != null)
+            {
+                _currentMoodPercent = Mathf.Lerp(_currentMoodPercent, _targetMoodPercent, lerpSpeed);
+                _moodBarFill.rectTransform.anchorMax = new Vector2(_currentMoodPercent, 1);
+                _moodBarFill.color = GetMoodColor(_currentData?.mood_state ?? "neutral");
+            }
         }
 
         // Trigger a jump animation (to be called by events)
@@ -218,7 +255,10 @@ namespace TheIsland.Visual
             _currentData = data;
             gameObject.name = $"Agent_{data.id}_{data.name}";
 
-            // Apply unique color based on agent ID
+            // Loading premium assets (Phase 19)
+            TryLoadPremiumSprite(data.id);
+
+            // Apply unique color based on agent ID (as fallback/tint)
             ApplyAgentColor(data.id);
 
             // Set UI text
@@ -227,6 +267,45 @@ namespace TheIsland.Visual
 
             UpdateStats(data);
             Debug.Log($"[AgentVisual] Initialized: {data.name}");
+        }
+
+        private void TryLoadPremiumSprite(int id)
+        {
+            // Load the collection texture from Assets
+            // Note: In a real build, we'd use Resources.Load or Addressables.
+            // For this environment, we'll try to find it in the path or use a static reference.
+            // Since we can't easily use Resources.Load at runtime for arbitrary paths, 
+            // we'll implement a simple runtime texture loader if needed, or assume it's assigned to a manager.
+            
+            // For now, let's assume the texture is assigned or loaded.
+            // I'll add a static reference to the collection texture in NetworkManager or AgentVisual.
+            
+            if (characterSprite != null) return; // Already has a sprite
+
+            StartCoroutine(LoadSpriteCoroutine(id));
+        }
+
+        private IEnumerator LoadSpriteCoroutine(int id)
+        {
+            // This is a simplified runtime loader for the demonstration
+            string path = Application.dataPath + "/Sprites/Characters.png";
+            if (!System.IO.File.Exists(path)) yield break;
+
+            byte[] fileData = System.IO.File.ReadAllBytes(path);
+            Texture2D tex = new Texture2D(2, 2);
+            tex.LoadImage(fileData);
+
+            // Slice the 1x3 collection (3 characters in a row)
+            int charIndex = id % 3;
+            float charWidth = tex.width / 3f;
+            Rect rect = new Rect(charIndex * charWidth, 0, charWidth, tex.height);
+            
+            characterSprite = Sprite.Create(tex, rect, new Vector2(0.5f, 0.5f), 100f);
+            if (_spriteRenderer != null)
+            {
+                _spriteRenderer.sprite = characterSprite;
+                _spriteRenderer.color = Color.white;
+            }
         }
 
         private void ApplyAgentColor(int agentId)
@@ -702,28 +781,23 @@ namespace TheIsland.Visual
             rect.anchoredPosition = Vector2.zero;
 
             var bg = panel.AddComponent<Image>();
-            bg.sprite = CreateRoundedRectSprite(32, 32, 8);
+            bg.sprite = CreateRoundedRectSprite(32, 32, 12);
             bg.type = Image.Type.Sliced;
-            bg.color = new Color(0.1f, 0.12f, 0.18f, 0.6f); // Lower alpha for glass effect
+            bg.color = new Color(0.05f, 0.08f, 0.15f, 0.45f); // Darker, more transparent glass
 
-            // Add subtle border
+            // Add inner glow border (Phase 19)
             var borderObj = new GameObject("Border");
             borderObj.transform.SetParent(panel.transform);
-            borderObj.transform.localPosition = Vector3.zero;
-            borderObj.transform.localRotation = Quaternion.identity;
-            borderObj.transform.localScale = Vector3.one;
-
             var borderRect = borderObj.AddComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
             borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = new Vector2(-2, -2);
-            borderRect.offsetMax = new Vector2(2, 2);
-            borderRect.SetAsFirstSibling();
-
+            borderRect.offsetMin = new Vector2(1, 1);
+            borderRect.offsetMax = new Vector2(-1, -1);
+            
             var borderImg = borderObj.AddComponent<Image>();
-            borderImg.sprite = CreateRoundedRectSprite(32, 32, 8);
+            borderImg.sprite = CreateRoundedRectSprite(32, 32, 12);
             borderImg.type = Image.Type.Sliced;
-            borderImg.color = new Color(0.3f, 0.35f, 0.45f, 0.5f);
+            borderImg.color = new Color(1f, 1f, 1f, 0.15f); // Subtle highlight
 
             return panel;
         }
@@ -918,36 +992,19 @@ namespace TheIsland.Visual
         {
             _currentData = data;
 
-            // Update HP bar
-            float hpPercent = data.hp / 100f;
-            if (_hpBarFill != null)
-            {
-                _hpBarFill.rectTransform.anchorMax = new Vector2(hpPercent, 1);
-                _hpBarFill.color = Color.Lerp(hpLowColor, hpHighColor, hpPercent);
-            }
+            // Set targets for smooth lerping (Phase 19)
+            _targetHpPercent = data.hp / 100f;
+            _targetEnergyPercent = data.energy / 100f;
+            _targetMoodPercent = data.mood / 100f;
+
             if (_hpText != null)
             {
                 _hpText.text = $"HP: {data.hp}";
             }
 
-            // Update Energy bar
-            float energyPercent = data.energy / 100f;
-            if (_energyBarFill != null)
-            {
-                _energyBarFill.rectTransform.anchorMax = new Vector2(energyPercent, 1);
-                _energyBarFill.color = Color.Lerp(energyLowColor, energyHighColor, energyPercent);
-            }
             if (_energyText != null)
             {
                 _energyText.text = $"Energy: {data.energy}";
-            }
-
-            // Update Mood bar
-            float moodPercent = data.mood / 100f;
-            if (_moodBarFill != null)
-            {
-                _moodBarFill.rectTransform.anchorMax = new Vector2(moodPercent, 1);
-                _moodBarFill.color = GetMoodColor(data.mood_state);
             }
 
             // Check for mood change (Visual Expression)
