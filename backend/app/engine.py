@@ -30,6 +30,7 @@ RESET_PATTERN = re.compile(r"(reset|重新开始|重置)", re.IGNORECASE)
 HEAL_PATTERN = re.compile(r"heal\s+(\w+)", re.IGNORECASE)
 TALK_PATTERN = re.compile(r"talk\s+(\w+)\s*(.*)?", re.IGNORECASE)
 ENCOURAGE_PATTERN = re.compile(r"encourage\s+(\w+)", re.IGNORECASE)
+LOVE_PATTERN = re.compile(r"love\s+(\w+)", re.IGNORECASE)
 REVIVE_PATTERN = re.compile(r"revive\s+(\w+)", re.IGNORECASE)
 
 # =============================================================================
@@ -47,7 +48,10 @@ FEED_ENERGY_RESTORE = 20
 HEAL_COST = 15
 HEAL_HP_RESTORE = 30
 ENCOURAGE_COST = 5
+ENCOURAGE_COST = 5
 ENCOURAGE_MOOD_BOOST = 15
+LOVE_COST = 5
+LOVE_MOOD_BOOST = 20
 REVIVE_COST = 10  # Casual mode cost
 
 INITIAL_USER_GOLD = 100
@@ -201,6 +205,14 @@ class GameEngine:
         """Create and broadcast a game event."""
         event = GameEvent(event_type=event_type, timestamp=time.time(), data=data)
         await self._manager.broadcast(event)
+
+    async def _broadcast_vfx(self, effect: str, target_id: int = 0, message: str = "") -> None:
+        """Helper to broadcast visual effect events."""
+        await self._broadcast_event(EventType.VFX_EVENT, {
+            "effect": effect,
+            "target_id": target_id,
+            "message": message
+        })
 
     async def _broadcast_agents_status(self) -> None:
         """Broadcast all agents' current status."""
@@ -1325,6 +1337,9 @@ class GameEngine:
             })
             await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": feed_result["user_gold"]})
 
+            # VFX: Food Cloud
+            await self._broadcast_vfx("food", feed_result["agent_id"], "")
+
             asyncio.create_task(self._trigger_agent_speak(
                 feed_result["agent_id"], feed_result["agent_name"],
                 feed_result["agent_personality"], feed_result["agent_hp"],
@@ -1409,6 +1424,43 @@ class GameEngine:
             asyncio.create_task(self._trigger_agent_speak(
                 agent.id, agent.name, agent.personality, agent.hp, agent.energy, agent.mood,
                 f"User {username} encouraged you!", "encourage"
+            ))
+
+    async def _handle_love(self, username: str, agent_name: str) -> None:
+        """Handle love command (hearts)."""
+        with get_db_session() as db:
+            user = self._get_or_create_user(db, username)
+            agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
+
+            if agent is None:
+                await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
+                return
+
+            if agent.status != "Alive":
+                await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
+                return
+
+            if user.gold < LOVE_COST:
+                await self._broadcast_event(EventType.ERROR, {
+                    "user": username, "message": f"Not enough gold! Need {LOVE_COST}, have {user.gold}"
+                })
+                return
+
+            user.gold -= LOVE_COST
+            old_mood = agent.mood
+            agent.mood = min(100, agent.mood + LOVE_MOOD_BOOST)
+            
+            # Update relationship (Phase 5 integration: could add affection)
+            # For now just simple mood boost and FX
+
+            await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
+
+            # VFX: Hearts
+            await self._broadcast_vfx("heart", agent.id, f"{username} sends love to {agent.name}!")
+            
+            asyncio.create_task(self._trigger_agent_speak(
+                agent.id, agent.name, agent.personality, agent.hp, agent.energy, agent.mood,
+                f"User {username} sent you love!", "love"
             ))
 
     async def _handle_talk(self, username: str, agent_name: str, topic: str = "") -> None:
@@ -1547,6 +1599,10 @@ class GameEngine:
 
         if match := ENCOURAGE_PATTERN.search(message):
             await self._handle_encourage(user, match.group(1))
+            return
+
+        if match := LOVE_PATTERN.search(message):
+            await self._handle_love(user, match.group(1))
             return
 
         if match := REVIVE_PATTERN.search(message):
