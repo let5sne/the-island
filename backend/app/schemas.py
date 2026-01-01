@@ -55,6 +55,17 @@ class EventType(str, Enum):
     # Random Events (Phase 17-C)
     RANDOM_EVENT = "random_event"        # Random event occurred
 
+    # Economy (Phase 23)
+    GIVE_ITEM = "give_item"              # Agent gives item to another
+
+    # Group Activities (Phase 24)
+    # Group Activities (Phase 24)
+    GROUP_ACTIVITY = "group_activity"    # Storytelling, dancing, etc.
+
+    # VFX & Gifts (Phase 8)
+    VFX_EVENT = "vfx_event"              # Visual effect trigger
+    GIFT_EFFECT = "gift_effect"          # Twitch bits/sub effect
+
 
 class GameEvent(BaseModel):
     """

@@ -44,6 +44,11 @@ namespace TheIsland.Visual
         [SerializeField] private int dustParticleCount = 8;
         [SerializeField] private float dustDuration = 0.5f;
 
+        [Header("Food Poof Settings")]
+        [SerializeField] private Color foodColor = new Color(1f, 1f, 1f, 0.7f); // White smoke
+        [SerializeField] private int foodParticleCount = 15;
+        [SerializeField] private float foodDuration = 1.0f;
+
         [Header("General Settings")]
         [SerializeField] private float effectScale = 1f;
         #endregion
@@ -97,6 +102,17 @@ namespace TheIsland.Visual
         }
 
         /// <summary>
+        /// Play food poof effect (white smoke).
+        /// Used for feeding.
+        /// </summary>
+        public void PlayFoodPoof(Vector3 position)
+        {
+             var ps = CreateFoodPoofSystem(position);
+             ps.Play();
+             Destroy(ps.gameObject, foodDuration + 0.5f);
+        }
+
+        /// <summary>
         /// Play an effect by type name.
         /// </summary>
         public void PlayEffect(string effectType, Vector3 position)
@@ -114,6 +130,10 @@ namespace TheIsland.Visual
                 case "subscription":
                     PlayHeartExplosion(position);
                     break;
+                case "food":
+                case "feed":
+                    PlayFoodPoof(position);
+                    break;
                 default:
                     // Default to gold rain
                     PlayGoldRain(position);
@@ -130,9 +150,12 @@ namespace TheIsland.Visual
         {
             GameObject go = new GameObject("GoldRain_VFX");
             go.transform.position = position + Vector3.up * 3f; // Start above
-            
+
             ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            // Stop immediately to prevent "duration while playing" warning
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = ps.main;
+            main.playOnAwake = false;
             main.loop = false;
             main.duration = goldDuration;
             main.startLifetime = 1.5f;
@@ -203,9 +226,12 @@ namespace TheIsland.Visual
         {
             GameObject go = new GameObject("HeartExplosion_VFX");
             go.transform.position = position + Vector3.up * 1.5f;
-            
+
             ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            // Stop immediately to prevent "duration while playing" warning
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = ps.main;
+            main.playOnAwake = false;
             main.loop = false;
             main.duration = heartDuration;
             main.startLifetime = 1.2f;
@@ -280,7 +306,10 @@ namespace TheIsland.Visual
             go.transform.position = position;
 
             ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            // Stop immediately to prevent "duration while playing" warning
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = ps.main;
+            main.playOnAwake = false;
             main.loop = false;
             main.duration = dustDuration;
             main.startLifetime = 0.4f;
@@ -332,6 +361,61 @@ namespace TheIsland.Visual
             var renderer = go.GetComponent<ParticleSystemRenderer>();
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
             renderer.material = CreateParticleMaterial(dustColor);
+
+            return ps;
+        }
+
+        private ParticleSystem CreateFoodPoofSystem(Vector3 position)
+        {
+            GameObject go = new GameObject("FoodPoof_VFX");
+            go.transform.position = position + Vector3.up * 1.5f;
+
+            ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            // Stop immediately to prevent "duration while playing" warning
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = ps.main;
+            main.playOnAwake = false;
+            main.loop = false;
+            main.duration = foodDuration;
+            main.startLifetime = 0.8f;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.5f, 2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.3f * effectScale, 0.6f * effectScale);
+            main.startColor = foodColor;
+            main.gravityModifier = -0.05f; // Slight float
+            main.maxParticles = foodParticleCount;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0;
+            // Burst
+            emission.SetBursts(new ParticleSystem.Burst[] { new ParticleSystem.Burst(0f, (short)foodParticleCount) });
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = 0.4f * effectScale;
+
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            AnimationCurve sizeCurve = new AnimationCurve();
+            sizeCurve.AddKey(0f, 0.2f);
+            sizeCurve.AddKey(0.5f, 1f);
+            sizeCurve.AddKey(1f, 0f);
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, sizeCurve);
+
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[] { new GradientColorKey(foodColor, 0f), new GradientColorKey(foodColor, 1f) },
+                new GradientAlphaKey[] { new GradientAlphaKey(0.8f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0f, 1f) }
+            );
+            colorOverLifetime.color = gradient;
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.material = CreateParticleMaterial(foodColor);
 
             return ps;
         }

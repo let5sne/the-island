@@ -353,6 +353,15 @@ namespace TheIsland.Models
 
         // Random Events (Phase 17-C)
         public const string RANDOM_EVENT = "random_event";
+
+        // Economy (Phase 23)
+        public const string GIVE_ITEM = "give_item";
+
+        // Group Activities (Phase 24)
+        public const string GROUP_ACTIVITY = "group_activity";
+
+        // Phase 8: VFX
+        public const string VFX_EVENT = "vfx_event";
     }
 
     /// <summary>
@@ -402,5 +411,42 @@ namespace TheIsland.Models
         public string event_type;   // "storm_damage", "treasure_found", "beast_attack", "rumor_spread"
         public string message;
         public string agent_name;   // Optional: affected agent
+    }
+
+    /// <summary>
+    /// Give item event data (Phase 23).
+    /// </summary>
+    [Serializable]
+    public class GiveItemEventData
+    {
+        public int from_id;
+        public int to_id;
+        public string item_type; // "herb", "food", "medicine"
+        public string message;
+    }
+
+    /// <summary>
+    /// Group Activity event data (Phase 24).
+    /// </summary>
+    [Serializable]
+    public class GroupActivityEventData
+    {
+        public string activity_type; // "storytelling"
+        public int storyteller_id;
+        public string storyteller_name;
+        public List<int> listener_ids;
+        public string content; // The story text
+        public string topic;
+    }
+
+    /// <summary>
+    /// VFX event data (Phase 8).
+    /// </summary>
+    [Serializable]
+    public class VFXEventData
+    {
+        public string effect;    // "gold_rain", "heart", "food"
+        public int target_id;    // Optional: if -1 or 0, might mean global or specific position logic
+        public string message;
     }
 }

@@ -72,6 +72,9 @@ namespace TheIsland.Network
         public event Action<CraftEventData> OnCraft;        // Phase 16: Crafting
         public event Action<UseItemEventData> OnUseItem;    // Phase 16: Using items
         public event Action<RandomEventData> OnRandomEvent; // Phase 17-C: Random Events
+        public event Action<GiveItemEventData> OnGiveItem;  // Phase 23: Item Exchange
+        public event Action<GroupActivityEventData> OnGroupActivity; // Phase 24: Group Activities
+        public event Action<VFXEventData> OnVFXEvent; // Phase 8: VFX
         #endregion
 
         #region Private Fields
@@ -377,6 +380,23 @@ namespace TheIsland.Network
                         var randomEventData = JsonUtility.FromJson<RandomEventData>(dataJson);
                         OnRandomEvent?.Invoke(randomEventData);
                         Debug.Log($"[Random Event] {randomEventData.event_type}: {randomEventData.message}");
+                        OnRandomEvent?.Invoke(randomEventData);
+                        Debug.Log($"[Random Event] {randomEventData.event_type}: {randomEventData.message}");
+                        break;
+
+                    case EventTypes.GIVE_ITEM:
+                        var giveData = JsonUtility.FromJson<GiveItemEventData>(dataJson);
+                        OnGiveItem?.Invoke(giveData);
+                        break;
+
+                    case EventTypes.GROUP_ACTIVITY:
+                        var groupData = JsonUtility.FromJson<GroupActivityEventData>(dataJson);
+                        OnGroupActivity?.Invoke(groupData);
+                        break;
+
+                    case EventTypes.VFX_EVENT:
+                        var vfxData = JsonUtility.FromJson<VFXEventData>(dataJson);
+                        OnVFXEvent?.Invoke(vfxData);
                         break;
 
                     default:
