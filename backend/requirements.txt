@@ -4,4 +4,5 @@ websockets>=12.0
 pydantic>=2.5.0
 sqlalchemy>=2.0.0
 aiosqlite>=0.19.0
-openai>=1.0.0
+litellm>=1.40.0
+python-dotenv>=1.0.0

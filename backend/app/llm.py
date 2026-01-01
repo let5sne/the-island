@@ -1,6 +1,22 @@
 """
 LLM Service - Agent Brain Module.
-Provides AI-powered responses for agents using OpenAI's API.
+Provides AI-powered responses for agents using LiteLLM (supports multiple providers).
+
+Supported providers (via environment variables):
+- OpenAI: OPENAI_API_KEY → model="gpt-3.5-turbo" or "gpt-4"
+- Anthropic: ANTHROPIC_API_KEY → model="claude-3-haiku-20240307" or "claude-3-sonnet-20240229"
+- Google: GEMINI_API_KEY → model="gemini/gemini-pro"
+- Azure OpenAI: AZURE_API_KEY + AZURE_API_BASE → model="azure/<deployment-name>"
+- OpenRouter: OPENROUTER_API_KEY → model="openrouter/<model>"
+- Ollama (local): OLLAMA_API_BASE → model="ollama/llama2"
+- Custom/Self-hosted: LLM_API_KEY + LLM_API_BASE → any OpenAI-compatible endpoint
+- And 100+ more providers...
+
+Configuration:
+- LLM_MODEL: Model to use (default: gpt-3.5-turbo)
+- LLM_API_BASE: Custom API base URL (for self-hosted or proxy services)
+- LLM_API_KEY: Generic API key (used with LLM_API_BASE)
+- LLM_MOCK_MODE: Set to "true" to force mock mode
 """
 
 import logging
@@ -41,41 +57,89 @@ MOCK_REACTIONS = {
     ],
 }
 
+# Default model configuration
+DEFAULT_MODEL = "gpt-3.5-turbo"
+
 
 class LLMService:
     """
-    Service for generating AI-powered agent reactions.
-    Falls back to mock responses if API key is not configured.
+    Service for generating AI-powered agent reactions using LiteLLM.
+    Supports multiple LLM providers through a unified interface.
+    Falls back to mock responses if no API key is configured.
     """
 
     def __init__(self) -> None:
-        """Initialize the LLM service with OpenAI client or mock mode."""
-        self._api_key = os.environ.get("OPENAI_API_KEY")
-        self._client = None
-        self._mock_mode = False
+        """Initialize the LLM service with LiteLLM or mock mode."""
+        self._model = os.environ.get("LLM_MODEL", DEFAULT_MODEL)
+        self._api_base = os.environ.get("LLM_API_BASE")  # Custom base URL
+        self._api_key = os.environ.get("LLM_API_KEY")    # Generic API key
+        self._mock_mode = os.environ.get("LLM_MOCK_MODE", "").lower() == "true"
+        self._acompletion = None
 
-        if not self._api_key:
+        if self._mock_mode:
+            logger.info("LLMService running in MOCK mode (forced by LLM_MOCK_MODE)")
+            return
+
+        # Check for any supported API key (order matters for provider detection)
+        api_keys = {
+            "OPENAI_API_KEY": "OpenAI",
+            "ANTHROPIC_API_KEY": "Anthropic",
+            "GEMINI_API_KEY": "Google Gemini",
+            "AZURE_API_KEY": "Azure OpenAI",
+            "AZURE_API_BASE": "Azure OpenAI",
+            "OPENROUTER_API_KEY": "OpenRouter",
+            "COHERE_API_KEY": "Cohere",
+            "HUGGINGFACE_API_KEY": "HuggingFace",
+            "OLLAMA_API_BASE": "Ollama (local)",
+            "LLM_API_KEY": "Custom (with LLM_API_BASE)",
+            "LLM_API_BASE": "Custom endpoint",
+        }
+
+        found_provider = None
+        for key, provider in api_keys.items():
+            if os.environ.get(key):
+                found_provider = provider
+                break
+
+        if not found_provider:
             logger.warning(
-                "OPENAI_API_KEY not found in environment. "
-                "LLMService running in MOCK mode - using predefined responses."
+                "No LLM API key found in environment. "
+                "LLMService running in MOCK mode - using predefined responses. "
+                f"Supported keys: {', '.join(api_keys.keys())}"
             )
             self._mock_mode = True
-        else:
-            try:
-                from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(api_key=self._api_key)
-                logger.info("LLMService initialized with OpenAI API")
-            except ImportError:
-                logger.error("openai package not installed. Running in MOCK mode.")
-                self._mock_mode = True
-            except Exception as e:
-                logger.error(f"Failed to initialize OpenAI client: {e}. Running in MOCK mode.")
-                self._mock_mode = True
+            return
+
+        try:
+            from litellm import acompletion
+            self._acompletion = acompletion
+
+            # Log configuration details
+            config_info = f"provider: {found_provider}, model: {self._model}"
+            if self._api_base:
+                config_info += f", api_base: {self._api_base}"
+            logger.info(f"LLMService initialized with LiteLLM ({config_info})")
+        except ImportError:
+            logger.error("litellm package not installed. Running in MOCK mode.")
+            self._mock_mode = True
+        except Exception as e:
+            logger.error(f"Failed to initialize LiteLLM: {e}. Running in MOCK mode.")
+            self._mock_mode = True
 
     @property
     def is_mock_mode(self) -> bool:
         """Check if service is running in mock mode."""
         return self._mock_mode
+
+    @property
+    def model(self) -> str:
+        """Get the current model name."""
+        return self._model
+
+    @property
+    def api_base(self) -> str | None:
+        """Get the custom API base URL if configured."""
+        return self._api_base
 
     def _get_mock_response(self, event_type: str = "feed") -> str:
         """Get a random mock response for testing without API."""
@@ -112,15 +176,22 @@ class LLMService:
                 f"Respond in first person, as if speaking out loud."
             )
 
-            response = await self._client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
+            # Build kwargs for acompletion
+            kwargs = {
+                "model": self._model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": event_description}
                 ],
-                max_tokens=50,
-                temperature=0.8,
-            )
+                "max_tokens": 50,
+                "temperature": 0.8,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+
+            response = await self._acompletion(**kwargs)
 
             return response.choices[0].message.content.strip()
 
@@ -165,15 +236,22 @@ class LLMService:
                 f"Speak naturally, as if talking to yourself or nearby survivors."
             )
 
-            response = await self._client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
+            # Build kwargs for acompletion
+            kwargs = {
+                "model": self._model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": "What are you thinking right now?"}
                 ],
-                max_tokens=40,
-                temperature=0.9,
-            )
+                "max_tokens": 40,
+                "temperature": 0.9,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
+
+            response = await self._acompletion(**kwargs)
 
             return response.choices[0].message.content.strip()
 
