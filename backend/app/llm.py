@@ -404,7 +404,8 @@ class LLMService:
         interaction_type: str,
         relationship_type: str,
         weather: str = "Sunny",
-        time_of_day: str = "day"
+        time_of_day: str = "day",
+        previous_dialogue: str = None
     ) -> str:
         """
         Generate dialogue for social interaction between two agents.
@@ -467,9 +468,19 @@ class LLMService:
                 f"{initiator_name} and {target_name} {relationship_desc}. "
                 f"It is {time_of_day} and the weather is {weather}. "
                 f"{initiator_name} is {interaction_desc} {target_name}. "
-                f"Write a brief, natural dialogue exchange (2-3 lines total). "
-                f"Format: '{initiator_name}: [line]\\n{target_name}: [response]'"
             )
+
+            if previous_dialogue:
+                 system_prompt += (
+                    f"\nCONTEXT: {target_name} just said: '{previous_dialogue}'\n"
+                    f"Write a response from {initiator_name} to {target_name}. "
+                    f"Format: '{initiator_name}: [response]'"
+                 )
+            else:
+                 system_prompt += (
+                    f"\nWrite a brief opening dialogue exchange (2-3 lines total). "
+                    f"Format: '{initiator_name}: [line]\\n{target_name}: [response]'"
+                 )
 
             kwargs = {
                 "model": self._model,
@@ -493,6 +504,52 @@ class LLMService:
         except Exception as e:
             logger.error(f"LLM API error for social interaction: {e}")
             return f"{initiator_name}: ...\n{target_name}: ..."
+
+    async def generate_story(
+        self,
+        storyteller_name: str,
+        topic: str = "ghost_story"
+    ) -> str:
+        """
+        Generate a short story for the campfire.
+        """
+        if self._mock_mode:
+            stories = [
+                "Once upon a time, a ship crashed here...",
+                "The elders say this island is haunted...",
+                "I saw a strange light in the forest yesterday..."
+            ]
+            return random.choice(stories)
+            
+        try:
+            system_prompt = (
+                f"You are {storyteller_name}, a survivor telling a story at a campfire. "
+                f"Topic: {topic}. "
+                f"Keep it short (2-3 sentences), mysterious, and atmospheric."
+            )
+            
+            kwargs = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": "Tell us a story."}
+                ],
+                "max_tokens": 100,
+                "temperature": 1.0, 
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key and not self._api_key_header:
+                kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
+
+            response = await self._acompletion(**kwargs)
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"LLM API error for story: {e}")
+            return "It was a dark and stormy night..."
 
     async def generate_gratitude(
         self,
