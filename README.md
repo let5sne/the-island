@@ -14,6 +14,7 @@ the-island/
 │       ├── models.py        # SQLAlchemy 数据模型
 │       ├── schemas.py       # Pydantic 消息模式
 │       ├── llm.py           # LLM 集成 (对话生成)
+│       ├── memory_service.py # Agent 记忆管理服务
 │       ├── twitch_service.py # Twitch 聊天机器人
 │       └── database.py      # 数据库配置
 ├── frontend/          # Web 调试客户端
@@ -35,6 +36,13 @@ the-island/
 - **天气系统**: 晴天、多云、雨天、暴风雨、炎热、雾天
 - **社交系统**: 角色间自主社交互动
 - **休闲模式**: 自动复活、降低难度
+- **自主行动**: 角色会自动进行采集、休息、社交等行为
+- **疾病机制**: 恶劣天气和低免疫力可能导致生病
+- **制作系统**: 使用草药制作药品治愈疾病
+- **资源稀缺**: 树木果实有限，每日再生
+- **社交角色**: 领导者、追随者、独行者动态关系
+- **记忆系统**: Agent 会记住重要的互动和事件
+- **随机事件**: 风暴破坏、发现宝藏、野兽袭击等
 
 ### 玩家命令
 | 命令 | 格式 | 金币消耗 | 效果 |
@@ -53,6 +61,17 @@ the-island/
 - **Bob** (诚实) - 绿色
 
 每个角色有独特性格，会根据性格做出不同反应和社交行为。
+
+#### 角色属性
+| 属性 | 说明 |
+|------|------|
+| HP | 生命值，归零则死亡 |
+| 能量 | 行动力，过低会影响行动 |
+| 心情 | 情绪状态，影响社交和决策 |
+| 免疫力 | 抵抗疾病的能力 (0-100) |
+| 社交角色 | leader/follower/loner/neutral |
+| 当前行动 | Idle/Gather/Sleep/Socialize 等 |
+| 位置 | tree_left/tree_right/campfire/herb_patch 等 |
 
 ## 技术栈
 
@@ -97,12 +116,13 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | 脚本 | 功能 |
 |------|------|
 | `NetworkManager.cs` | WebSocket 连接管理、消息收发 |
-| `GameManager.cs` | 游戏状态管理、角色生成 |
+| `GameManager.cs` | 游戏状态管理、角色生成、行动系统 |
 | `UIManager.cs` | 主 UI 界面 (顶部状态栏、底部命令输入) |
 | `EventLog.cs` | 事件日志面板 (显示游戏事件) |
-| `AgentVisual.cs` | 角色视觉组件 (精灵、血条、对话框) |
+| `AgentVisual.cs` | 角色视觉组件 (精灵、血条、对话框、状态图标) |
 | `EnvironmentManager.cs` | 环境场景 (沙滩、海洋、天空) |
 | `WeatherEffects.cs` | 天气粒子效果 (雨、雾、热浪) |
+| `Models.cs` | 数据模型 (Agent、WorldState、事件数据) |
 
 ### 视觉特性
 - 程序化生成的 2.5D 角色精灵
@@ -147,10 +167,17 @@ HEAL            # 治疗反馈
 TALK            # 对话反馈
 ENCOURAGE       # 鼓励反馈
 REVIVE          # 复活反馈
+GIFT_EFFECT     # Bits 打赏特效
 
 # 社交系统
 SOCIAL_INTERACTION  # 角色间社交
 AUTO_REVIVE         # 自动复活 (休闲模式)
+
+# 自主行动系统 (Phase 13+)
+AGENT_ACTION    # 角色执行行动 (采集/休息/社交等)
+CRAFT           # 制作物品 (药品等)
+USE_ITEM        # 使用物品
+RANDOM_EVENT    # 随机事件 (风暴/宝藏/野兽等)
 ```
 
 ## Twitch 直播集成
