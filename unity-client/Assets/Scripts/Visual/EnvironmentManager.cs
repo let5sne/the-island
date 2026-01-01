@@ -394,6 +394,8 @@ namespace TheIsland.Visual
             CreateRock(new Vector3(-5, 0, 4), 0.5f);
             CreateRock(new Vector3(6, 0, 5), 0.7f);
             CreateRock(new Vector3(-7, 0, 6), 0.4f);
+
+            CreateGroundDetails();
         }
 
         private void CreatePalmTree(Vector3 position, float scale)
@@ -645,6 +647,90 @@ namespace TheIsland.Visual
             RenderSettings.ambientLight = ambient * weatherTint * 0.8f;
         }
         #endregion
+
+        private void CreateGroundDetails()
+        {
+            // Scatter shells
+            for (int i = 0; i < 20; i++)
+            {
+                float x = Random.Range(-25f, 25f);
+                float z = Random.Range(3f, 7f); // Near water line
+                
+                var shell = new GameObject("Shell");
+                shell.transform.SetParent(transform);
+                shell.transform.position = new Vector3(x, -0.45f, z);
+                // Lie flat
+                shell.transform.rotation = Quaternion.Euler(90, Random.Range(0, 360), 0);
+                
+                var renderer = shell.AddComponent<SpriteRenderer>();
+                renderer.sprite = CreateShellSprite();
+                renderer.sortingOrder = -39; 
+                shell.transform.localScale = Vector3.one * Random.Range(0.2f, 0.4f);
+            }
+            
+            // Scatter pebbles
+            for (int i = 0; i < 30; i++)
+            {
+                float x = Random.Range(-25f, 25f);
+                float z = Random.Range(-2f, 10f); // Wider range
+                
+                var pebble = new GameObject("Pebble");
+                pebble.transform.SetParent(transform);
+                pebble.transform.position = new Vector3(x, -0.48f, z);
+                pebble.transform.rotation = Quaternion.Euler(90, Random.Range(0, 360), 0);
+                
+                var renderer = pebble.AddComponent<SpriteRenderer>();
+                renderer.sprite = CreatePebbleSprite();
+                renderer.sortingOrder = -39;
+                renderer.color = new Color(0.7f, 0.7f, 0.7f);
+                pebble.transform.localScale = Vector3.one * Random.Range(0.1f, 0.2f);
+            }
+        }
+
+        private Sprite CreateShellSprite()
+        {
+            int size = 32;
+            Texture2D tex = new Texture2D(size, size);
+            Color[] pixels = new Color[size*size];
+            for(int i=0; i<pixels.Length; i++) pixels[i] = Color.clear;
+
+            Vector2 center = new Vector2(size/2, size/2);
+            for(int y=0; y<size; y++){
+                for(int x=0; x<size; x++){
+                    float dist = Vector2.Distance(new Vector2(x,y), center);
+                    if(dist < 12) {
+                        float angle = Mathf.Atan2(y-center.y, x-center.x);
+                        // Simple spiral or scallop shape
+                        float radius = 10 + Mathf.Sin(angle * 5) * 2;
+                        if(dist < radius)
+                            pixels[y*size+x] = new Color(1f, 0.95f, 0.85f);
+                    }
+                }
+            }
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        private Sprite CreatePebbleSprite()
+        {
+            int size = 16;
+            Texture2D tex = new Texture2D(size, size);
+            Color[] pixels = new Color[size*size];
+            for(int i=0; i<pixels.Length; i++) pixels[i] = Color.clear;
+
+            Vector2 center = new Vector2(size/2, size/2);
+            for(int y=0; y<size; y++){
+                for(int x=0; x<size; x++){
+                    if(Vector2.Distance(new Vector2(x,y), center) < 5 + Random.Range(-1f, 1f)) {
+                        pixels[y*size+x] = Color.white;
+                    }
+                }
+            }
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
 
         private void CreateClouds()
         {
