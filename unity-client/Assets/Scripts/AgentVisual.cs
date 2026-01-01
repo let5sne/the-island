@@ -106,6 +106,10 @@ namespace TheIsland.Visual
         private float _socialCheckTimer;
         private Dictionary<int, RelationshipData> _relationships = new Dictionary<int, RelationshipData>();
         private Dictionary<int, float> _lastGreetingTimes = new Dictionary<int, float>(); // Cooldown per agent
+        
+        // Phase 21-C: Follow Behavior
+        private Transform _followTarget;
+        private float _followUpdateTimer;
         #endregion
 
         #region Properties
@@ -234,9 +238,47 @@ namespace TheIsland.Visual
                      // Agent might be moving but stuck or thinking
                  }
             }
+            // Phase 21-C: Follow Update Loop
+            else if (_followTarget != null)
+            {
+                _followUpdateTimer += Time.deltaTime;
+                if (_followUpdateTimer > 0.1f) // Update path every 0.1s
+                {
+                    _followUpdateTimer = 0;
+                    if (_navAgent.enabled)
+                    {
+                        // Calculate position behind the target (1.5m)
+                        // Or just move towards them but stop at 1.5m radius
+                        // Let's rely on NavMeshAgent stopping distance, but set dest to target pos
+                        Vector3 dest = _followTarget.position;
+                        
+                        // Try to offset slightly to avoid perfect overlap if stopping dist fails
+                        // Vector3 dir = (transform.position - dest).normalized;
+                        // dest += dir * 1.5f; 
+                        
+                        _navAgent.SetDestination(dest);
+                        _navAgent.stoppingDistance = 1.6f; // Stop 1.6m away
+                    }
+                }
+                
+                // Manually handle flipping based on relative position if stationary
+                     Vector3 vel = _navAgent.velocity;
+                 
+                 // Manual flipping based on velocity X
+                 if (Mathf.Abs(vel.x) > 0.1f)
+                 {
+                     bool flip = vel.x < 0;
+                     if (_spriteRenderer.flipX != flip) _spriteRenderer.flipX = flip;
+                 }
+                 
+                 if (_animator != null) _animator.SetMovement(vel);
+            }
             else
             {
-                 if (_navAgent.enabled && _navAgent.isOnNavMesh) _navAgent.ResetPath();
+                 if (_navAgent.enabled && _navAgent.isOnNavMesh) {
+                     _navAgent.ResetPath();
+                     _navAgent.stoppingDistance = 0.5f; // Reset default
+                 }
                  if (_animator != null) _animator.SetMovement(Vector3.zero);
             }
 
@@ -519,6 +561,18 @@ namespace TheIsland.Visual
             // The spawn positions have Y=0.
             _targetPosition.y = transform.position.y;
             _isMoving = true;
+            _followTarget = null; // Clear follow target on explicit move
+        }
+        
+        // Phase 21-C: Follow Target
+        public void SetFollowTarget(Transform target)
+        {
+            _followTarget = target;
+            if (target != null)
+            {
+                _isMoving = true;
+                _followUpdateTimer = 0; // Force immediate update
+            }
         }
 
         private void MoveTowardsTarget()
@@ -552,6 +606,102 @@ namespace TheIsland.Visual
                 _spriteRenderer.transform.localPosition = pos;
                 yield return null;
             }
+            // Ensure it returns to original position after jump
+            _spriteRenderer.transform.localPosition = startPos;
+        }
+
+        // Phase 23: Give Item Animation
+        public void DoGiveItem(Transform target, string itemType)
+        {
+            if (target == null) return;
+            StartCoroutine(GiveItemRoutine(target, itemType));
+        }
+
+        private IEnumerator GiveItemRoutine(Transform target, string itemType)
+        {
+            // Create item visual
+            GameObject itemObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            // Disable collider to avoid physics interaction
+            var collider = itemObj.GetComponent<Collider>();
+            if (collider) Destroy(collider);
+
+            itemObj.transform.position = transform.position + Vector3.up * 1.5f;
+            itemObj.transform.localScale = Vector3.one * 0.3f;
+            
+            // Color code
+            var renderer = itemObj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                // Simple material usage (might need shader support for transparency but standard is fine for opaque)
+                if (itemType == "herb" || itemType == "medicine")
+                    renderer.material.color = Color.green;
+                else if (itemType == "food") 
+                    renderer.material.color = new Color(1f, 0.5f, 0f); // Orange
+                else 
+                    renderer.material.color = Color.cyan;
+            }
+
+            // Animate Parabola
+            Vector3 startPos = itemObj.transform.position;
+            float duration = 0.8f;
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                
+                // Target might move/destroy
+                Vector3 targetPos = (target != null) ? target.position + Vector3.up * 1.5f : startPos + transform.forward * 2f;
+
+                // Linear move
+                Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
+
+                // Arc
+                float height = Mathf.Sin(t * Mathf.PI) * 1.5f;
+                currentPos.y += height;
+
+                itemObj.transform.position = currentPos;
+                yield return null;
+            }
+
+            Destroy(itemObj);
+        }
+
+        // Phase 24: Group Activity Visuals
+        public void DoStorytelling()
+        {
+            // Show "Story" Emote
+            ShowEmotion("📖");
+            
+            // Visual cue: Small hop sequence to indicate lively telling
+            StartCoroutine(StorytellingRoutine());
+        }
+
+        private IEnumerator StorytellingRoutine()
+        {
+            // Perform a few small hops while telling
+            for (int i = 0; i < 3; i++)
+            {
+                yield return JumpRoutine();
+                yield return new WaitForSeconds(1.5f);
+            }
+        }
+
+        public void DoListen(Transform target)
+        {
+            // Turn to face target
+            if (target != null && _spriteRenderer != null)
+            {
+                float dx = target.position.x - transform.position.x;
+                if (Mathf.Abs(dx) > 0.1f)
+                {
+                    _spriteRenderer.flipX = dx < 0;
+                }
+            }
+
+            // Show "Listen" Emote
+            ShowEmotion("👂");
         }
 
         private void OnMouseDown()
