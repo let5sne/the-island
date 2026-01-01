@@ -942,3 +942,32 @@ class GameEngine:
         """Stop the game engine."""
         self._running = False
         logger.info("Game engine stopping...")
+
+    async def process_command(self, user: str, text: str) -> None:
+        """Process a command from Twitch chat."""
+        # Use the existing process_comment method to handle commands
+        await self.process_comment(user, text)
+
+    async def process_bits(self, user: str, amount: int) -> None:
+        """Process Twitch bits and convert to game gold."""
+        # 1 Bit = 1 Gold conversion rate
+        gold_added = amount
+        
+        with get_db_session() as db:
+            user_obj = self._get_or_create_user(db, user)
+            user_obj.gold += gold_added
+            
+            await self._broadcast_event(EventType.USER_UPDATE, {
+                "user": user,
+                "gold": user_obj.gold,
+                "message": f"{user} received {gold_added} gold from {amount} bits!"
+            })
+            
+            # Also broadcast a special bits event for UI effects
+            await self._broadcast_event("bits_received", {
+                "user": user,
+                "bits": amount,
+                "gold": gold_added
+            })
+            
+            logger.info(f"Processed bits: {user} -> {amount} bits -> {gold_added} gold")

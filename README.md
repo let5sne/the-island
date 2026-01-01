@@ -8,13 +8,14 @@
 the-island/
 ├── backend/           # Python FastAPI 后端服务
 │   └── app/
-│       ├── main.py       # 应用入口
-│       ├── server.py     # WebSocket 服务器
-│       ├── engine.py     # 游戏引擎核心逻辑
-│       ├── models.py     # SQLAlchemy 数据模型
-│       ├── schemas.py    # Pydantic 消息模式
-│       ├── llm.py        # LLM 集成 (对话生成)
-│       └── database.py   # 数据库配置
+│       ├── main.py          # 应用入口
+│       ├── server.py        # WebSocket 服务器
+│       ├── engine.py        # 游戏引擎核心逻辑
+│       ├── models.py        # SQLAlchemy 数据模型
+│       ├── schemas.py       # Pydantic 消息模式
+│       ├── llm.py           # LLM 集成 (对话生成)
+│       ├── twitch_service.py # Twitch 聊天机器人
+│       └── database.py      # 数据库配置
 ├── frontend/          # Web 调试客户端
 │   ├── app.js           # JavaScript 客户端
 │   └── debug_client.html # 调试页面
@@ -61,7 +62,8 @@ the-island/
 - **WebSocket** - 实时双向通信
 - **SQLAlchemy** - ORM 数据持久化
 - **SQLite** - 轻量级数据库
-- **Anthropic Claude** - LLM 对话生成
+- **LiteLLM** - 多 LLM 提供商支持
+- **TwitchIO** - Twitch 聊天集成
 
 ### Unity 客户端
 - **Unity 6 LTS** (6000.3.2f1)
@@ -151,12 +153,60 @@ SOCIAL_INTERACTION  # 角色间社交
 AUTO_REVIVE         # 自动复活 (休闲模式)
 ```
 
+## Twitch 直播集成
+
+游戏支持连接到 Twitch 直播聊天室，观众可以通过发送弹幕来控制游戏。
+
+### 获取 Twitch Token
+
+**方法一：Twitch Token Generator (推荐用于测试)**
+1. 访问 https://twitchtokengenerator.com/
+2. 选择 "Bot Chat Token"
+3. 使用你的 Twitch 账号授权
+4. 复制 "Access Token" (以 `oauth:` 开头)
+
+**方法二：Twitch Developer Console (生产环境)**
+1. 访问 https://dev.twitch.tv/console/apps
+2. 创建新应用，类型选择 "Chat Bot"
+3. 设置 OAuth 重定向 URL: `http://localhost:3000`
+4. 使用 OAuth 授权码流程获取 Token
+5. 需要的权限范围: `chat:read`, `chat:edit`, `bits:read`
+
+### Bits 打赏转换
+
+观众在直播间使用 Bits 打赏时，系统会自动将 Bits 转换为游戏内金币：
+- **转换比率**: 1 Bit = 1 Gold
+- Unity 客户端会收到 `gift_effect` 事件用于显示特效
+
 ## 环境变量
 
-创建 `.env` 文件:
+在 `backend/.env` 文件中配置：
+
 ```env
+# LLM 配置 (选择一种)
 ANTHROPIC_API_KEY=your_api_key_here
+# 或
+OPENAI_API_KEY=your_api_key_here
+LLM_MODEL=gpt-3.5-turbo
+
+# Twitch 配置 (可选)
+TWITCH_TOKEN=oauth:your_access_token_here
+TWITCH_CHANNEL_NAME=your_channel_name
+TWITCH_COMMAND_PREFIX=!
 ```
+
+### 必需变量
+| 变量 | 说明 |
+|------|------|
+| `LLM_MODEL` | LLM 模型名称 |
+| `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY` | LLM API 密钥 |
+
+### Twitch 变量 (可选)
+| 变量 | 说明 |
+|------|------|
+| `TWITCH_TOKEN` | OAuth Token (必须以 `oauth:` 开头) |
+| `TWITCH_CHANNEL_NAME` | 要加入的频道名称 |
+| `TWITCH_COMMAND_PREFIX` | 命令前缀 (默认 `!`) |
 
 ## 开发说明
 
