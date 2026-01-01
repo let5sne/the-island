@@ -54,10 +54,17 @@ namespace TheIsland.Core
         private int _currentTick;
         private int _currentDay;
         private int _nextSpawnIndex;
+
+        // World state
+        private string _currentTimeOfDay = "day";
+        private string _currentWeather = "Sunny";
         #endregion
 
         #region Properties
         public int PlayerGold => _playerGold;
+        public string CurrentTimeOfDay => _currentTimeOfDay;
+        public string CurrentWeather => _currentWeather;
+        public int CurrentDay => _currentDay;
         public int AliveAgentCount
         {
             get
@@ -135,6 +142,16 @@ namespace TheIsland.Core
             network.OnTick += HandleTick;
             network.OnSystemMessage += HandleSystemMessage;
             network.OnUserUpdate += HandleUserUpdate;
+
+            // New phase events
+            network.OnWeatherChange += HandleWeatherChange;
+            network.OnPhaseChange += HandlePhaseChange;
+            network.OnDayChange += HandleDayChange;
+            network.OnHeal += HandleHeal;
+            network.OnEncourage += HandleEncourage;
+            network.OnTalk += HandleTalk;
+            network.OnRevive += HandleRevive;
+            network.OnSocialInteraction += HandleSocialInteraction;
         }
 
         private void UnsubscribeFromNetworkEvents()
@@ -151,6 +168,16 @@ namespace TheIsland.Core
             network.OnTick -= HandleTick;
             network.OnSystemMessage -= HandleSystemMessage;
             network.OnUserUpdate -= HandleUserUpdate;
+
+            // New phase events
+            network.OnWeatherChange -= HandleWeatherChange;
+            network.OnPhaseChange -= HandlePhaseChange;
+            network.OnDayChange -= HandleDayChange;
+            network.OnHeal -= HandleHeal;
+            network.OnEncourage -= HandleEncourage;
+            network.OnTalk -= HandleTalk;
+            network.OnRevive -= HandleRevive;
+            network.OnSocialInteraction -= HandleSocialInteraction;
         }
         #endregion
 
@@ -215,7 +242,17 @@ namespace TheIsland.Core
         {
             if (tickInfo == null) return;
 
-            tickInfo.text = $"Day {_currentDay} | Tick {_currentTick} | Alive: {AliveAgentCount}";
+            // Format time of day nicely
+            string timeDisplay = _currentTimeOfDay switch
+            {
+                "dawn" => "Dawn",
+                "day" => "Day",
+                "dusk" => "Dusk",
+                "night" => "Night",
+                _ => "Day"
+            };
+
+            tickInfo.text = $"Day {_currentDay} | {timeDisplay} | {_currentWeather} | Tick {_currentTick} | Alive: {AliveAgentCount}";
         }
 
         private void UpdateGoldDisplay()
@@ -324,6 +361,17 @@ namespace TheIsland.Core
         {
             _currentTick = data.tick;
             _currentDay = data.day;
+
+            // Update weather and time of day from tick data
+            if (!string.IsNullOrEmpty(data.time_of_day))
+            {
+                _currentTimeOfDay = data.time_of_day;
+            }
+            if (!string.IsNullOrEmpty(data.weather))
+            {
+                _currentWeather = data.weather;
+            }
+
             UpdateTickInfo();
         }
 
@@ -339,6 +387,102 @@ namespace TheIsland.Core
             {
                 _playerGold = data.gold;
                 UpdateGoldDisplay();
+            }
+        }
+
+        private void HandleWeatherChange(WeatherChangeData data)
+        {
+            Debug.Log($"[GameManager] Weather changed: {data.old_weather} -> {data.new_weather}");
+            _currentWeather = data.new_weather;
+            ShowNotification($"Weather: {data.new_weather}");
+            UpdateTickInfo();
+        }
+
+        private void HandlePhaseChange(PhaseChangeData data)
+        {
+            Debug.Log($"[GameManager] Phase changed: {data.old_phase} -> {data.new_phase}");
+            _currentTimeOfDay = data.new_phase;
+            ShowNotification($"The {data.new_phase} begins...");
+            UpdateTickInfo();
+        }
+
+        private void HandleDayChange(DayChangeData data)
+        {
+            Debug.Log($"[GameManager] New day: {data.day}");
+            _currentDay = data.day;
+            ShowNotification($"Day {data.day} begins!");
+            UpdateTickInfo();
+        }
+
+        private void HandleHeal(HealEventData data)
+        {
+            Debug.Log($"[GameManager] Heal event: {data.message}");
+
+            // Update gold if this was our action
+            if (data.user == NetworkManager.Instance.Username)
+            {
+                _playerGold = data.user_gold;
+                UpdateGoldDisplay();
+            }
+
+            ShowNotification(data.message);
+        }
+
+        private void HandleEncourage(EncourageEventData data)
+        {
+            Debug.Log($"[GameManager] Encourage event: {data.message}");
+
+            // Update gold if this was our action
+            if (data.user == NetworkManager.Instance.Username)
+            {
+                _playerGold = data.user_gold;
+                UpdateGoldDisplay();
+            }
+
+            ShowNotification(data.message);
+        }
+
+        private void HandleTalk(TalkEventData data)
+        {
+            Debug.Log($"[GameManager] Talk event: {data.agent_name} responds about '{data.topic}'");
+
+            // Show the agent's speech response
+            if (_agentVisuals.TryGetValue(GetAgentIdByName(data.agent_name), out AgentVisual agentVisual))
+            {
+                agentVisual.ShowSpeech(data.response);
+            }
+            else if (_agentUIs.TryGetValue(GetAgentIdByName(data.agent_name), out AgentUI agentUI))
+            {
+                agentUI.ShowSpeech(data.response);
+            }
+        }
+
+        private void HandleRevive(ReviveEventData data)
+        {
+            Debug.Log($"[GameManager] Revive event: {data.message}");
+
+            // Update gold if this was our action
+            if (data.user == NetworkManager.Instance.Username)
+            {
+                _playerGold = data.user_gold;
+                UpdateGoldDisplay();
+            }
+
+            ShowNotification(data.message);
+        }
+
+        private void HandleSocialInteraction(SocialInteractionData data)
+        {
+            Debug.Log($"[GameManager] Social: {data.initiator_name} -> {data.target_name} ({data.interaction_type})");
+
+            // Show dialogue from initiator
+            if (_agentVisuals.TryGetValue(data.initiator_id, out AgentVisual initiatorVisual))
+            {
+                initiatorVisual.ShowSpeech(data.dialogue);
+            }
+            else if (_agentUIs.TryGetValue(data.initiator_id, out AgentUI initiatorUI))
+            {
+                initiatorUI.ShowSpeech(data.dialogue);
             }
         }
         #endregion
@@ -428,6 +572,41 @@ namespace TheIsland.Core
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Get agent ID by name (searches all agent systems).
+        /// </summary>
+        private int GetAgentIdByName(string name)
+        {
+            // Check AgentVisual first (newest system)
+            foreach (var kvp in _agentVisuals)
+            {
+                if (kvp.Value.CurrentData?.name == name)
+                {
+                    return kvp.Key;
+                }
+            }
+
+            // Check AgentUI
+            foreach (var kvp in _agentUIs)
+            {
+                if (kvp.Value.CurrentData?.name == name)
+                {
+                    return kvp.Key;
+                }
+            }
+
+            // Check AgentController (legacy)
+            foreach (var kvp in _agents)
+            {
+                if (kvp.Value.CurrentData?.name == name)
+                {
+                    return kvp.Key;
+                }
+            }
+
+            return -1;
         }
         #endregion
 

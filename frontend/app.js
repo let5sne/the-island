@@ -12,6 +12,13 @@ let userGold = 100;
 // Agents state
 let agents = [];
 
+// World state
+let worldState = {
+    day_count: 1,
+    time_of_day: 'day',
+    weather: 'Sunny'
+};
+
 // DOM Elements
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
@@ -87,6 +94,9 @@ function handleGameEvent(event) {
             updateAgentsUI(data.agents);
             break;
         case 'feed':
+        case 'heal':
+        case 'encourage':
+        case 'revive':
         case 'user_update':
             updateUserGold(data);
             break;
@@ -97,7 +107,35 @@ function handleGameEvent(event) {
             }
             break;
         case 'agent_speak':
-            showSpeechBubble(data.agent_id, data.agent_name, data.text);
+        case 'talk':
+            if (data.agent_id !== undefined) {
+                showSpeechBubble(data.agent_id, data.agent_name, data.text || data.response);
+            }
+            break;
+        case 'social_interaction':
+            showSocialInteraction(data);
+            break;
+        case 'world_update':
+            updateWorldState(data);
+            break;
+        case 'weather_change':
+            worldState.weather = data.new_weather;
+            updateWorldDisplay();
+            break;
+        case 'phase_change':
+            worldState.time_of_day = data.new_phase;
+            updateWorldDisplay();
+            break;
+        case 'day_change':
+            worldState.day_count = data.day;
+            updateWorldDisplay();
+            break;
+        case 'tick':
+            // Update world state from tick data
+            if (data.day) worldState.day_count = data.day;
+            if (data.time_of_day) worldState.time_of_day = data.time_of_day;
+            if (data.weather) worldState.weather = data.weather;
+            updateWorldDisplay();
             break;
     }
 
@@ -152,6 +190,10 @@ function createAgentCard(agent) {
     const statusClass = isDead ? 'dead' : 'alive';
     const statusText = isDead ? '已死亡' : '存活';
 
+    // Mood emoji and color
+    const moodEmoji = getMoodEmoji(agent.mood_state);
+    const moodColor = getMoodColor(agent.mood_state);
+
     card.innerHTML = `
         <div class="agent-header">
             <div>
@@ -178,18 +220,175 @@ function createAgentCard(agent) {
                 <div class="stat-bar-fill energy" style="width: ${agent.energy}%"></div>
             </div>
         </div>
-        <button class="feed-btn" onclick="feedAgent('${agent.name}')" ${isDead ? 'disabled' : ''}>
-            🍖 投喂 (10金币)
-        </button>
+        <div class="stat-bar-container">
+            <div class="stat-bar-label">
+                <span>${moodEmoji} 心情</span>
+                <span>${agent.mood}/100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill" style="width: ${agent.mood}%; background: ${moodColor}"></div>
+            </div>
+        </div>
+        <div class="agent-actions">
+            ${isDead ? `
+                <button class="action-btn revive" onclick="reviveAgent('${agent.name}')">
+                    💫 复活 (10g)
+                </button>
+            ` : `
+                <button class="action-btn feed" onclick="feedAgent('${agent.name}')">
+                    🍖 投喂 (10g)
+                </button>
+                <button class="action-btn heal" onclick="healAgent('${agent.name}')">
+                    💊 治疗 (15g)
+                </button>
+                <button class="action-btn encourage" onclick="encourageAgent('${agent.name}')">
+                    💪 鼓励 (5g)
+                </button>
+                <button class="action-btn talk" onclick="talkToAgent('${agent.name}')">
+                    💬 交谈
+                </button>
+            `}
+        </div>
     `;
 
     return card;
 }
 
 /**
+ * Get mood emoji based on mood state
+ */
+function getMoodEmoji(moodState) {
+    const emojis = {
+        'happy': '😊',
+        'neutral': '😐',
+        'sad': '😢',
+        'anxious': '😰'
+    };
+    return emojis[moodState] || '😐';
+}
+
+/**
+ * Get mood color based on mood state
+ */
+function getMoodColor(moodState) {
+    const colors = {
+        'happy': '#4ade80',
+        'neutral': '#fbbf24',
+        'sad': '#60a5fa',
+        'anxious': '#f87171'
+    };
+    return colors[moodState] || '#fbbf24';
+}
+
+/**
+ * Update world state from server
+ */
+function updateWorldState(data) {
+    if (data.day_count) worldState.day_count = data.day_count;
+    if (data.time_of_day) worldState.time_of_day = data.time_of_day;
+    if (data.weather) worldState.weather = data.weather;
+    updateWorldDisplay();
+}
+
+/**
+ * Update the world display panel
+ */
+function updateWorldDisplay() {
+    const worldDisplay = document.getElementById('worldDisplay');
+    if (!worldDisplay) return;
+
+    const weatherEmojis = {
+        'Sunny': '☀️',
+        'Cloudy': '☁️',
+        'Rainy': '🌧️',
+        'Stormy': '⛈️',
+        'Hot': '🔥',
+        'Foggy': '🌫️'
+    };
+
+    const phaseEmojis = {
+        'dawn': '🌅',
+        'day': '☀️',
+        'dusk': '🌇',
+        'night': '🌙'
+    };
+
+    const phaseNames = {
+        'dawn': '黎明',
+        'day': '白天',
+        'dusk': '黄昏',
+        'night': '夜晚'
+    };
+
+    worldDisplay.innerHTML = `
+        <span>📅 第${worldState.day_count}天</span>
+        <span>${phaseEmojis[worldState.time_of_day] || '☀️'} ${phaseNames[worldState.time_of_day] || '白天'}</span>
+        <span>${weatherEmojis[worldState.weather] || '☀️'} ${worldState.weather}</span>
+    `;
+}
+
+/**
+ * Show social interaction notification
+ */
+function showSocialInteraction(data) {
+    const interactionNames = {
+        'chat': '聊天',
+        'share_food': '分享食物',
+        'help': '互相帮助',
+        'argue': '争吵',
+        'comfort': '安慰'
+    };
+
+    const message = `${data.initiator_name} 和 ${data.target_name} ${interactionNames[data.interaction_type] || '互动'}了`;
+    logEvent({
+        event_type: 'social_interaction',
+        timestamp: Date.now() / 1000,
+        data: { message, dialogue: data.dialogue }
+    });
+}
+
+/**
  * Feed an agent
  */
 function feedAgent(agentName) {
+    sendCommand(`feed ${agentName}`);
+}
+
+/**
+ * Heal an agent
+ */
+function healAgent(agentName) {
+    sendCommand(`heal ${agentName}`);
+}
+
+/**
+ * Encourage an agent
+ */
+function encourageAgent(agentName) {
+    sendCommand(`encourage ${agentName}`);
+}
+
+/**
+ * Talk to an agent
+ */
+function talkToAgent(agentName) {
+    const topic = prompt(`想和 ${agentName} 聊什么？（留空则随便聊聊）`);
+    if (topic !== null) {
+        sendCommand(`talk ${agentName} ${topic}`.trim());
+    }
+}
+
+/**
+ * Revive a dead agent
+ */
+function reviveAgent(agentName) {
+    sendCommand(`revive ${agentName}`);
+}
+
+/**
+ * Send a command to the server
+ */
+function sendCommand(command) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         alert('未连接到服务器');
         return;
@@ -198,7 +397,7 @@ function feedAgent(agentName) {
     const user = getCurrentUser();
     const payload = {
         action: 'send_comment',
-        payload: { user, message: `feed ${agentName}` }
+        payload: { user, message: command }
     };
 
     ws.send(JSON.stringify(payload));
@@ -315,19 +514,38 @@ function formatEventData(eventType, data) {
         case 'comment':
             return `${data.user}: ${data.message}`;
         case 'tick':
-            return `Tick #${data.tick} | 第${data.day}天 | 存活: ${data.alive_agents}人`;
+            const phaseEmoji = { 'dawn': '🌅', 'day': '☀️', 'dusk': '🌇', 'night': '🌙' };
+            const weatherEmoji = { 'Sunny': '☀️', 'Cloudy': '☁️', 'Rainy': '🌧️', 'Stormy': '⛈️', 'Hot': '🔥', 'Foggy': '🌫️' };
+            return `第${data.day}天 ${phaseEmoji[data.time_of_day] || ''}${data.time_of_day} | ${weatherEmoji[data.weather] || ''}${data.weather} | 存活: ${data.alive_agents}人`;
         case 'system':
         case 'error':
         case 'feed':
+        case 'heal':
+        case 'encourage':
+        case 'revive':
+        case 'auto_revive':
         case 'agent_died':
         case 'check':
             return data.message;
         case 'agent_speak':
             return `💬 ${data.agent_name}: "${data.text}"`;
+        case 'talk':
+            return `💬 ${data.agent_name} 对 ${data.user} 说: "${data.response}"`;
         case 'agents_update':
             return `角色状态已更新`;
         case 'user_update':
             return `${data.user} 金币: ${data.gold}`;
+        case 'weather_change':
+            return `🌤️ 天气变化: ${data.old_weather} → ${data.new_weather}`;
+        case 'phase_change':
+            return `🕐 ${data.message}`;
+        case 'day_change':
+            return `📅 ${data.message}`;
+        case 'social_interaction':
+            const dialogue = data.dialogue ? `\n"${data.dialogue}"` : '';
+            return `👥 ${data.message}${dialogue}`;
+        case 'world_update':
+            return `🌍 世界状态已更新`;
         default:
             return JSON.stringify(data);
     }

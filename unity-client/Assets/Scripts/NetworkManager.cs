@@ -56,6 +56,17 @@ namespace TheIsland.Network
         public event Action<TickData> OnTick;
         public event Action<SystemEventData> OnSystemMessage;
         public event Action<UserUpdateData> OnUserUpdate;
+
+        // New Phase events
+        public event Action<WeatherChangeData> OnWeatherChange;
+        public event Action<PhaseChangeData> OnPhaseChange;
+        public event Action<DayChangeData> OnDayChange;
+        public event Action<HealEventData> OnHeal;
+        public event Action<EncourageEventData> OnEncourage;
+        public event Action<TalkEventData> OnTalk;
+        public event Action<ReviveEventData> OnRevive;
+        public event Action<SocialInteractionData> OnSocialInteraction;
+        public event Action<WorldStateData> OnWorldUpdate;
         #endregion
 
         #region Private Fields
@@ -286,6 +297,52 @@ namespace TheIsland.Network
                         OnUserUpdate?.Invoke(userData);
                         break;
 
+                    case EventTypes.WORLD_UPDATE:
+                        var worldData = JsonUtility.FromJson<WorldStateData>(dataJson);
+                        OnWorldUpdate?.Invoke(worldData);
+                        break;
+
+                    case EventTypes.WEATHER_CHANGE:
+                        var weatherData = JsonUtility.FromJson<WeatherChangeData>(dataJson);
+                        OnWeatherChange?.Invoke(weatherData);
+                        break;
+
+                    case EventTypes.PHASE_CHANGE:
+                        var phaseData = JsonUtility.FromJson<PhaseChangeData>(dataJson);
+                        OnPhaseChange?.Invoke(phaseData);
+                        break;
+
+                    case EventTypes.DAY_CHANGE:
+                        var dayData = JsonUtility.FromJson<DayChangeData>(dataJson);
+                        OnDayChange?.Invoke(dayData);
+                        break;
+
+                    case EventTypes.HEAL:
+                        var healData = JsonUtility.FromJson<HealEventData>(dataJson);
+                        OnHeal?.Invoke(healData);
+                        break;
+
+                    case EventTypes.ENCOURAGE:
+                        var encourageData = JsonUtility.FromJson<EncourageEventData>(dataJson);
+                        OnEncourage?.Invoke(encourageData);
+                        break;
+
+                    case EventTypes.TALK:
+                        var talkData = JsonUtility.FromJson<TalkEventData>(dataJson);
+                        OnTalk?.Invoke(talkData);
+                        break;
+
+                    case EventTypes.REVIVE:
+                    case EventTypes.AUTO_REVIVE:
+                        var reviveData = JsonUtility.FromJson<ReviveEventData>(dataJson);
+                        OnRevive?.Invoke(reviveData);
+                        break;
+
+                    case EventTypes.SOCIAL_INTERACTION:
+                        var socialData = JsonUtility.FromJson<SocialInteractionData>(dataJson);
+                        OnSocialInteraction?.Invoke(socialData);
+                        break;
+
                     case EventTypes.COMMENT:
                         // Comments can be logged but typically not displayed in 3D
                         Debug.Log($"[Chat] {json}");
@@ -421,6 +478,29 @@ namespace TheIsland.Network
         public void FeedAgent(string agentName)
         {
             SendCommand($"feed {agentName}");
+        }
+
+        public void HealAgent(string agentName)
+        {
+            SendCommand($"heal {agentName}");
+        }
+
+        public void EncourageAgent(string agentName)
+        {
+            SendCommand($"encourage {agentName}");
+        }
+
+        public void TalkToAgent(string agentName, string topic = "")
+        {
+            string cmd = string.IsNullOrEmpty(topic)
+                ? $"talk {agentName}"
+                : $"talk {agentName} {topic}";
+            SendCommand(cmd);
+        }
+
+        public void ReviveAgent(string agentName)
+        {
+            SendCommand($"revive {agentName}");
         }
 
         public void CheckStatus()

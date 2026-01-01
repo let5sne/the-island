@@ -220,7 +220,8 @@ class LLMService:
     async def generate_idle_chat(
         self,
         agent: "Agent",
-        weather: str = "Sunny"
+        weather: str = "Sunny",
+        time_of_day: str = "day"
     ) -> str:
         """
         Generate idle chatter for an agent based on current conditions.
@@ -228,6 +229,7 @@ class LLMService:
         Args:
             agent: The Agent model instance
             weather: Current weather condition
+            time_of_day: Current time of day (dawn/day/dusk/night)
 
         Returns:
             A spontaneous thought or comment from the agent
@@ -249,7 +251,7 @@ class LLMService:
                 f"Personality: {agent.personality}. "
                 f"Current Status: HP={agent.hp}, Energy={agent.energy}. "
                 f"You are stranded on a survival island. "
-                f"The weather is {weather}. "
+                f"It is currently {time_of_day} and the weather is {weather}. "
                 f"Say something brief (under 15 words) about your situation or thoughts. "
                 f"Speak naturally, as if talking to yourself or nearby survivors."
             )
@@ -279,6 +281,185 @@ class LLMService:
         except Exception as e:
             logger.error(f"LLM API error for idle chat: {e}")
             return self._get_mock_response(event_type)
+
+    async def generate_conversation_response(
+        self,
+        agent_name: str,
+        agent_personality: str,
+        agent_mood: int,
+        username: str,
+        topic: str = "just chatting"
+    ) -> str:
+        """
+        Generate a conversation response when a user talks to an agent.
+
+        Args:
+            agent_name: Name of the agent
+            agent_personality: Agent's personality trait
+            agent_mood: Agent's current mood (0-100)
+            username: Name of the user talking to the agent
+            topic: Topic of conversation
+
+        Returns:
+            Agent's response to the user
+        """
+        if self._mock_mode:
+            mood_state = "happy" if agent_mood >= 70 else "neutral" if agent_mood >= 40 else "sad"
+            responses = {
+                "happy": [
+                    f"Hey {username}! Great to see a friendly face!",
+                    f"Oh, you want to chat? I'm in a good mood today!",
+                    f"Nice of you to talk to me, {username}!",
+                ],
+                "neutral": [
+                    f"Oh, hi {username}. What's on your mind?",
+                    f"Sure, I can chat for a bit.",
+                    f"What do you want to talk about?",
+                ],
+                "sad": [
+                    f"*sighs* Oh... hey {username}...",
+                    f"I'm not really in the mood, but... okay.",
+                    f"What is it, {username}?",
+                ]
+            }
+            return random.choice(responses.get(mood_state, responses["neutral"]))
+
+        try:
+            mood_desc = "happy and energetic" if agent_mood >= 70 else \
+                       "calm and neutral" if agent_mood >= 40 else \
+                       "a bit down" if agent_mood >= 20 else "anxious and worried"
+
+            system_prompt = (
+                f"You are {agent_name}, a survivor on a deserted island. "
+                f"Personality: {agent_personality}. "
+                f"Current mood: {mood_desc} (mood level: {agent_mood}/100). "
+                f"A viewer named {username} wants to chat with you. "
+                f"Respond naturally in character (under 30 words). "
+                f"Be conversational and show your personality."
+            )
+
+            user_msg = f"{username} says: {topic}" if topic != "just chatting" else \
+                      f"{username} wants to chat with you."
+
+            kwargs = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_msg}
+                ],
+                "max_tokens": 80,
+                "temperature": 0.85,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key and not self._api_key_header:
+                kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
+
+            response = await self._acompletion(**kwargs)
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"LLM API error for conversation: {e}")
+            return f"*nods at {username}* Hey there."
+
+    async def generate_social_interaction(
+        self,
+        initiator_name: str,
+        target_name: str,
+        interaction_type: str,
+        relationship_type: str,
+        weather: str = "Sunny",
+        time_of_day: str = "day"
+    ) -> str:
+        """
+        Generate dialogue for social interaction between two agents.
+
+        Args:
+            initiator_name: Name of the agent initiating interaction
+            target_name: Name of the target agent
+            interaction_type: Type of interaction (chat, share_food, help, argue, comfort)
+            relationship_type: Current relationship (stranger, acquaintance, friend, etc.)
+            weather: Current weather
+            time_of_day: Current time of day
+
+        Returns:
+            A brief dialogue exchange between the two agents
+        """
+        if self._mock_mode:
+            dialogues = {
+                "chat": [
+                    f"{initiator_name}: Hey {target_name}, how are you holding up?\n{target_name}: Could be better, but I'm managing.",
+                    f"{initiator_name}: Nice weather today, huh?\n{target_name}: Yeah, at least something's going right.",
+                ],
+                "share_food": [
+                    f"{initiator_name}: Here, take some of my food.\n{target_name}: Really? Thanks, I appreciate it!",
+                    f"{initiator_name}: You look hungry. Have some of this.\n{target_name}: You're a lifesaver!",
+                ],
+                "help": [
+                    f"{initiator_name}: Need a hand with that?\n{target_name}: Yes, thank you so much!",
+                    f"{initiator_name}: Let me help you out.\n{target_name}: I owe you one!",
+                ],
+                "argue": [
+                    f"{initiator_name}: This is all your fault!\n{target_name}: My fault? You're the one who-",
+                    f"{initiator_name}: I can't believe you did that!\n{target_name}: Just leave me alone!",
+                ],
+                "comfort": [
+                    f"{initiator_name}: Hey, are you okay?\n{target_name}: *sniff* I'll be fine... thanks for asking.",
+                    f"{initiator_name}: Don't worry, we'll get through this.\n{target_name}: I hope you're right...",
+                ]
+            }
+            return random.choice(dialogues.get(interaction_type, dialogues["chat"]))
+
+        try:
+            relationship_desc = {
+                "stranger": "barely know each other",
+                "acquaintance": "are getting to know each other",
+                "friend": "are friends",
+                "close_friend": "are close friends who trust each other",
+                "rival": "have tensions between them"
+            }.get(relationship_type, "are acquaintances")
+
+            interaction_desc = {
+                "chat": "having a casual conversation",
+                "share_food": "sharing food with",
+                "help": "helping with a task",
+                "argue": "having a disagreement with",
+                "comfort": "comforting"
+            }.get(interaction_type, "talking to")
+
+            system_prompt = (
+                f"You are writing dialogue for two survivors on a deserted island. "
+                f"{initiator_name} and {target_name} {relationship_desc}. "
+                f"It is {time_of_day} and the weather is {weather}. "
+                f"{initiator_name} is {interaction_desc} {target_name}. "
+                f"Write a brief, natural dialogue exchange (2-3 lines total). "
+                f"Format: '{initiator_name}: [line]\\n{target_name}: [response]'"
+            )
+
+            kwargs = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Write a {interaction_type} dialogue between {initiator_name} and {target_name}."}
+                ],
+                "max_tokens": 100,
+                "temperature": 0.9,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key and not self._api_key_header:
+                kwargs["api_key"] = self._api_key
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
+
+            response = await self._acompletion(**kwargs)
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"LLM API error for social interaction: {e}")
+            return f"{initiator_name}: ...\n{target_name}: ..."
 
 
 # Global instance for easy import

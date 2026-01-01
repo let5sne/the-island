@@ -39,6 +39,12 @@ namespace TheIsland.Visual
         [SerializeField] private Color hpLowColor = new Color(0.9f, 0.3f, 0.3f);
         [SerializeField] private Color energyHighColor = new Color(1f, 0.8f, 0.2f);
         [SerializeField] private Color energyLowColor = new Color(1f, 0.5f, 0.1f);
+
+        [Header("Mood Colors")]
+        [SerializeField] private Color moodHappyColor = new Color(0.3f, 0.9f, 0.5f);
+        [SerializeField] private Color moodNeutralColor = new Color(0.98f, 0.75f, 0.15f);
+        [SerializeField] private Color moodSadColor = new Color(0.4f, 0.65f, 0.98f);
+        [SerializeField] private Color moodAnxiousColor = new Color(0.97f, 0.53f, 0.53f);
         #endregion
 
         #region References
@@ -48,8 +54,11 @@ namespace TheIsland.Visual
         private TextMeshProUGUI _personalityLabel;
         private Image _hpBarFill;
         private Image _energyBarFill;
+        private Image _moodBarFill;
         private TextMeshProUGUI _hpText;
         private TextMeshProUGUI _energyText;
+        private TextMeshProUGUI _moodText;
+        private TextMeshProUGUI _moodEmoji;
         private GameObject _deathOverlay;
         private SpeechBubble _speechBubble;
         private Billboard _spriteBillboard;
@@ -61,6 +70,12 @@ namespace TheIsland.Visual
         private int _agentId;
         private AgentData _currentData;
         private Coroutine _speechCoroutine;
+
+        // Animation state
+        private float _idleAnimTimer;
+        private float _breathScale = 1f;
+        private Vector3 _originalSpriteScale;
+        private float _bobOffset;
         #endregion
 
         #region Properties
@@ -74,6 +89,33 @@ namespace TheIsland.Visual
         {
             _mainCamera = Camera.main;
             CreateVisuals();
+        }
+
+        private void Update()
+        {
+            if (!IsAlive) return;
+
+            // Idle breathing animation
+            _idleAnimTimer += Time.deltaTime;
+            _breathScale = 1f + Mathf.Sin(_idleAnimTimer * 2f) * 0.02f;
+
+            // Gentle bobbing
+            _bobOffset = Mathf.Sin(_idleAnimTimer * 1.5f) * 0.05f;
+
+            if (_spriteRenderer != null && _originalSpriteScale != Vector3.zero)
+            {
+                // Apply breathing scale
+                _spriteRenderer.transform.localScale = new Vector3(
+                    _originalSpriteScale.x * _breathScale,
+                    _originalSpriteScale.y * _breathScale,
+                    _originalSpriteScale.z
+                );
+
+                // Apply bobbing
+                var pos = _spriteRenderer.transform.localPosition;
+                pos.y = 1f + _bobOffset;
+                _spriteRenderer.transform.localPosition = pos;
+            }
         }
 
         private void OnMouseDown()
@@ -162,8 +204,63 @@ namespace TheIsland.Visual
                 RegeneratePlaceholderSprite();
             }
 
+            // Store original scale for animation
+            _originalSpriteScale = spriteObj.transform.localScale;
+
             // Add billboard
             _spriteBillboard = spriteObj.AddComponent<Billboard>();
+
+            // Add shadow
+            CreateShadow(spriteObj.transform);
+        }
+
+        private void CreateShadow(Transform spriteTransform)
+        {
+            var shadowObj = new GameObject("Shadow");
+            shadowObj.transform.SetParent(transform);
+            shadowObj.transform.localPosition = new Vector3(0, 0.01f, 0);
+            shadowObj.transform.localRotation = Quaternion.Euler(90, 0, 0);
+            shadowObj.transform.localScale = new Vector3(1.2f, 0.6f, 1f);
+
+            var shadowRenderer = shadowObj.AddComponent<SpriteRenderer>();
+            shadowRenderer.sprite = CreateShadowSprite();
+            shadowRenderer.sortingOrder = sortingOrder - 1;
+            shadowRenderer.color = new Color(0, 0, 0, 0.3f);
+        }
+
+        private Sprite CreateShadowSprite()
+        {
+            int size = 32;
+            Texture2D tex = new Texture2D(size, size);
+            tex.filterMode = FilterMode.Bilinear;
+
+            Vector2 center = new Vector2(size / 2f, size / 2f);
+            Color[] pixels = new Color[size * size];
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - center.x) / (size * 0.4f);
+                    float dy = (y - center.y) / (size * 0.4f);
+                    float dist = dx * dx + dy * dy;
+
+                    if (dist < 1)
+                    {
+                        float alpha = Mathf.Clamp01(1 - dist) * 0.5f;
+                        pixels[y * size + x] = new Color(0, 0, 0, alpha);
+                    }
+                    else
+                    {
+                        pixels[y * size + x] = Color.clear;
+                    }
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
         }
 
         private void RegeneratePlaceholderSprite()
@@ -183,7 +280,7 @@ namespace TheIsland.Visual
         private Texture2D CreatePlaceholderTexture(int width, int height)
         {
             Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-            texture.filterMode = FilterMode.Point;
+            texture.filterMode = FilterMode.Bilinear;
 
             // Clear to transparent
             Color[] pixels = new Color[width * height];
@@ -192,28 +289,191 @@ namespace TheIsland.Visual
                 pixels[i] = Color.clear;
             }
 
-            // Draw simple character shape
             Vector2 center = new Vector2(width / 2f, height / 2f);
 
-            // Body (ellipse)
-            DrawEllipse(pixels, width, height, center + Vector2.down * 8, 14, 20, placeholderBodyColor);
+            // Create highlight and shadow colors
+            Color highlight = Color.Lerp(placeholderBodyColor, Color.white, 0.3f);
+            Color shadow = Color.Lerp(placeholderBodyColor, Color.black, 0.3f);
+            Color skinTone = new Color(0.95f, 0.8f, 0.7f);
+            Color skinShadow = new Color(0.85f, 0.65f, 0.55f);
 
-            // Head (circle)
-            DrawCircle(pixels, width, height, center + Vector2.up * 12, 12, placeholderBodyColor);
+            // Body (ellipse with shading)
+            Vector2 bodyCenter = center + Vector2.down * 6;
+            DrawShadedEllipse(pixels, width, height, bodyCenter, 16, 22, placeholderBodyColor, highlight, shadow);
 
-            // Outline
-            DrawCircleOutline(pixels, width, height, center + Vector2.up * 12, 12, placeholderOutlineColor, 2);
-            DrawEllipseOutline(pixels, width, height, center + Vector2.down * 8, 14, 20, placeholderOutlineColor, 2);
+            // Head (circle with skin tone)
+            Vector2 headCenter = center + Vector2.up * 14;
+            DrawShadedCircle(pixels, width, height, headCenter, 13, skinTone, Color.Lerp(skinTone, Color.white, 0.2f), skinShadow);
+
+            // Hair (top of head)
+            Color hairColor = placeholderOutlineColor;
+            DrawHair(pixels, width, height, headCenter, 13, hairColor);
 
             // Eyes
-            DrawCircle(pixels, width, height, center + new Vector2(-4, 14), 2, Color.white);
-            DrawCircle(pixels, width, height, center + new Vector2(4, 14), 2, Color.white);
-            DrawCircle(pixels, width, height, center + new Vector2(-4, 14), 1, Color.black);
-            DrawCircle(pixels, width, height, center + new Vector2(4, 14), 1, Color.black);
+            DrawCircle(pixels, width, height, headCenter + new Vector2(-4, -1), 3, Color.white);
+            DrawCircle(pixels, width, height, headCenter + new Vector2(4, -1), 3, Color.white);
+            DrawCircle(pixels, width, height, headCenter + new Vector2(-4, -1), 1.5f, new Color(0.2f, 0.15f, 0.1f));
+            DrawCircle(pixels, width, height, headCenter + new Vector2(4, -1), 1.5f, new Color(0.2f, 0.15f, 0.1f));
+            // Eye highlights
+            DrawCircle(pixels, width, height, headCenter + new Vector2(-3, 0), 0.8f, Color.white);
+            DrawCircle(pixels, width, height, headCenter + new Vector2(5, 0), 0.8f, Color.white);
+
+            // Mouth (smile)
+            DrawSmile(pixels, width, height, headCenter + Vector2.down * 5, 4);
+
+            // Blush
+            DrawCircle(pixels, width, height, headCenter + new Vector2(-7, -3), 2, new Color(1f, 0.6f, 0.6f, 0.4f));
+            DrawCircle(pixels, width, height, headCenter + new Vector2(7, -3), 2, new Color(1f, 0.6f, 0.6f, 0.4f));
+
+            // Arms
+            DrawArm(pixels, width, height, bodyCenter + new Vector2(-14, 5), -30, skinTone);
+            DrawArm(pixels, width, height, bodyCenter + new Vector2(14, 5), 30, skinTone);
+
+            // Legs
+            DrawLeg(pixels, width, height, bodyCenter + new Vector2(-6, -20), placeholderBodyColor);
+            DrawLeg(pixels, width, height, bodyCenter + new Vector2(6, -20), placeholderBodyColor);
+
+            // Outline
+            AddOutline(pixels, width, height, placeholderOutlineColor);
 
             texture.SetPixels(pixels);
             texture.Apply();
             return texture;
+        }
+
+        private void DrawShadedCircle(Color[] pixels, int width, int height, Vector2 center, float radius, Color baseColor, Color highlight, Color shadow)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), center);
+                    if (dist <= radius)
+                    {
+                        // Shading based on position relative to light source (top-left)
+                        float dx = (x - center.x) / radius;
+                        float dy = (y - center.y) / radius;
+                        float shade = (-dx * 0.3f + dy * 0.7f) * 0.5f + 0.5f;
+                        Color color = Color.Lerp(highlight, shadow, shade);
+                        color = Color.Lerp(color, baseColor, 0.5f);
+                        pixels[y * width + x] = color;
+                    }
+                }
+            }
+        }
+
+        private void DrawShadedEllipse(Color[] pixels, int width, int height, Vector2 center, float rx, float ry, Color baseColor, Color highlight, Color shadow)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    float dx = (x - center.x) / rx;
+                    float dy = (y - center.y) / ry;
+                    if (dx * dx + dy * dy <= 1)
+                    {
+                        float shade = (-dx * 0.3f + dy * 0.5f) * 0.5f + 0.5f;
+                        Color color = Color.Lerp(highlight, shadow, shade);
+                        color = Color.Lerp(color, baseColor, 0.5f);
+                        pixels[y * width + x] = color;
+                    }
+                }
+            }
+        }
+
+        private void DrawHair(Color[] pixels, int width, int height, Vector2 headCenter, float headRadius, Color hairColor)
+        {
+            // Draw hair on top half of head
+            for (int y = (int)(headCenter.y); y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), headCenter);
+                    if (dist <= headRadius + 2 && dist >= headRadius - 4 && y > headCenter.y - 2)
+                    {
+                        float noise = Mathf.PerlinNoise(x * 0.3f, y * 0.3f);
+                        if (noise > 0.3f)
+                        {
+                            pixels[y * width + x] = Color.Lerp(hairColor, hairColor * 0.7f, noise);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void DrawSmile(Color[] pixels, int width, int height, Vector2 center, float smileWidth)
+        {
+            Color mouthColor = new Color(0.8f, 0.4f, 0.4f);
+            for (int x = (int)(center.x - smileWidth); x <= (int)(center.x + smileWidth); x++)
+            {
+                float t = (x - center.x + smileWidth) / (smileWidth * 2);
+                int y = (int)(center.y - Mathf.Sin(t * Mathf.PI) * 2);
+                if (x >= 0 && x < width && y >= 0 && y < height)
+                {
+                    pixels[y * width + x] = mouthColor;
+                    if (y > 0) pixels[(y - 1) * width + x] = mouthColor;
+                }
+            }
+        }
+
+        private void DrawArm(Color[] pixels, int width, int height, Vector2 start, float angle, Color skinColor)
+        {
+            float rad = angle * Mathf.Deg2Rad;
+            int length = 10;
+            for (int i = 0; i < length; i++)
+            {
+                int x = (int)(start.x + Mathf.Sin(rad) * i);
+                int y = (int)(start.y - Mathf.Cos(rad) * i);
+                DrawCircle(pixels, width, height, new Vector2(x, y), 2, skinColor);
+            }
+        }
+
+        private void DrawLeg(Color[] pixels, int width, int height, Vector2 start, Color clothColor)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                int x = (int)start.x;
+                int y = (int)(start.y - i);
+                if (y >= 0 && y < height)
+                {
+                    DrawCircle(pixels, width, height, new Vector2(x, y), 3, clothColor);
+                }
+            }
+            // Shoe
+            DrawCircle(pixels, width, height, start + Vector2.down * 8, 4, new Color(0.3f, 0.2f, 0.15f));
+        }
+
+        private void AddOutline(Color[] pixels, int width, int height, Color outlineColor)
+        {
+            Color[] newPixels = (Color[])pixels.Clone();
+            for (int y = 1; y < height - 1; y++)
+            {
+                for (int x = 1; x < width - 1; x++)
+                {
+                    if (pixels[y * width + x].a < 0.1f)
+                    {
+                        // Check neighbors
+                        bool hasNeighbor = false;
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (pixels[(y + dy) * width + (x + dx)].a > 0.5f)
+                                {
+                                    hasNeighbor = true;
+                                    break;
+                                }
+                            }
+                            if (hasNeighbor) break;
+                        }
+                        if (hasNeighbor)
+                        {
+                            newPixels[y * width + x] = outlineColor;
+                        }
+                    }
+                }
+            }
+            System.Array.Copy(newPixels, pixels, pixels.Length);
         }
 
         private void DrawCircle(Color[] pixels, int width, int height, Vector2 center, float radius, Color color)
@@ -294,31 +554,35 @@ namespace TheIsland.Visual
             _uiCanvas.sortingOrder = sortingOrder + 1;
 
             var canvasRect = canvasObj.GetComponent<RectTransform>();
-            canvasRect.sizeDelta = new Vector2(400, 150);
+            canvasRect.sizeDelta = new Vector2(400, 180);
 
             // Add billboard to canvas (configured for UI - full facing)
             _uiBillboard = canvasObj.AddComponent<Billboard>();
             _uiBillboard.ConfigureForUI();
 
-            // Create UI panel
-            var panel = CreateUIPanel(canvasObj.transform, new Vector2(350, 120));
+            // Create UI panel (increased height for mood bar)
+            var panel = CreateUIPanel(canvasObj.transform, new Vector2(350, 150));
 
             // Name label
             _nameLabel = CreateUIText(panel.transform, "NameLabel", "Agent", 36, Color.white, FontStyles.Bold);
-            SetRectPosition(_nameLabel.rectTransform, 0, 45, 320, 45);
+            SetRectPosition(_nameLabel.rectTransform, 0, 60, 320, 45);
 
             // Personality label
             _personalityLabel = CreateUIText(panel.transform, "PersonalityLabel", "(Personality)", 20,
                 new Color(0.8f, 0.8f, 0.8f), FontStyles.Italic);
-            SetRectPosition(_personalityLabel.rectTransform, 0, 15, 320, 25);
+            SetRectPosition(_personalityLabel.rectTransform, 0, 30, 320, 25);
 
             // HP Bar
             var hpBar = CreateProgressBar(panel.transform, "HPBar", "HP", hpHighColor, out _hpBarFill, out _hpText);
-            SetRectPosition(hpBar, 0, -15, 280, 24);
+            SetRectPosition(hpBar, 0, 0, 280, 24);
 
             // Energy Bar
             var energyBar = CreateProgressBar(panel.transform, "EnergyBar", "Energy", energyHighColor, out _energyBarFill, out _energyText);
-            SetRectPosition(energyBar, 0, -45, 280, 24);
+            SetRectPosition(energyBar, 0, -30, 280, 24);
+
+            // Mood Bar
+            var moodBar = CreateProgressBar(panel.transform, "MoodBar", "Mood", moodNeutralColor, out _moodBarFill, out _moodText);
+            SetRectPosition(moodBar, 0, -60, 280, 24);
 
             // Death overlay
             _deathOverlay = CreateDeathOverlay(panel.transform);
@@ -338,9 +602,77 @@ namespace TheIsland.Visual
             rect.anchoredPosition = Vector2.zero;
 
             var bg = panel.AddComponent<Image>();
-            bg.color = new Color(0, 0, 0, 0.6f);
+            bg.sprite = CreateRoundedRectSprite(32, 32, 8);
+            bg.type = Image.Type.Sliced;
+            bg.color = new Color(0.1f, 0.12f, 0.18f, 0.85f);
+
+            // Add subtle border
+            var borderObj = new GameObject("Border");
+            borderObj.transform.SetParent(panel.transform);
+            borderObj.transform.localPosition = Vector3.zero;
+            borderObj.transform.localRotation = Quaternion.identity;
+            borderObj.transform.localScale = Vector3.one;
+
+            var borderRect = borderObj.AddComponent<RectTransform>();
+            borderRect.anchorMin = Vector2.zero;
+            borderRect.anchorMax = Vector2.one;
+            borderRect.offsetMin = new Vector2(-2, -2);
+            borderRect.offsetMax = new Vector2(2, 2);
+            borderRect.SetAsFirstSibling();
+
+            var borderImg = borderObj.AddComponent<Image>();
+            borderImg.sprite = CreateRoundedRectSprite(32, 32, 8);
+            borderImg.type = Image.Type.Sliced;
+            borderImg.color = new Color(0.3f, 0.35f, 0.45f, 0.5f);
 
             return panel;
+        }
+
+        private Sprite CreateRoundedRectSprite(int width, int height, int radius)
+        {
+            Texture2D tex = new Texture2D(width, height);
+            tex.filterMode = FilterMode.Bilinear;
+
+            Color[] pixels = new Color[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    bool inRect = true;
+
+                    // Check corners for rounding
+                    if (x < radius && y < radius)
+                    {
+                        // Bottom-left corner
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(radius, radius)) <= radius;
+                    }
+                    else if (x >= width - radius && y < radius)
+                    {
+                        // Bottom-right corner
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(width - radius - 1, radius)) <= radius;
+                    }
+                    else if (x < radius && y >= height - radius)
+                    {
+                        // Top-left corner
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(radius, height - radius - 1)) <= radius;
+                    }
+                    else if (x >= width - radius && y >= height - radius)
+                    {
+                        // Top-right corner
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(width - radius - 1, height - radius - 1)) <= radius;
+                    }
+
+                    pixels[y * width + x] = inRect ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            // Create 9-sliced sprite
+            return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0.5f), 100f,
+                0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
         }
 
         private TextMeshProUGUI CreateUIText(Transform parent, string name, string text,
@@ -510,6 +842,26 @@ namespace TheIsland.Visual
                 _energyText.text = $"Energy: {data.energy}";
             }
 
+            // Update Mood bar
+            float moodPercent = data.mood / 100f;
+            if (_moodBarFill != null)
+            {
+                _moodBarFill.rectTransform.anchorMax = new Vector2(moodPercent, 1);
+                _moodBarFill.color = GetMoodColor(data.mood_state);
+            }
+            if (_moodText != null)
+            {
+                string moodIndicator = GetMoodEmoji(data.mood_state);
+                string moodLabel = data.mood_state switch
+                {
+                    "happy" => "Happy",
+                    "sad" => "Sad",
+                    "anxious" => "Anxious",
+                    _ => "Neutral"
+                };
+                _moodText.text = $"{moodIndicator} {moodLabel}: {data.mood}";
+            }
+
             // Update death state
             if (!data.IsAlive)
             {
@@ -519,6 +871,29 @@ namespace TheIsland.Visual
             {
                 OnAlive();
             }
+        }
+
+        private Color GetMoodColor(string moodState)
+        {
+            return moodState switch
+            {
+                "happy" => moodHappyColor,
+                "sad" => moodSadColor,
+                "anxious" => moodAnxiousColor,
+                _ => moodNeutralColor
+            };
+        }
+
+        private string GetMoodEmoji(string moodState)
+        {
+            // Use text symbols instead of emoji for font compatibility
+            return moodState switch
+            {
+                "happy" => "<color=#5AE65A>+</color>",
+                "sad" => "<color=#6AA8FF>-</color>",
+                "anxious" => "<color=#FF7777>!</color>",
+                _ => "<color=#FFD700>~</color>"
+            };
         }
 
         private void OnDeath()

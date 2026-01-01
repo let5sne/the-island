@@ -43,6 +43,11 @@ namespace TheIsland.Models
         public int energy;
         public string inventory;
 
+        // Mood system (Phase 3)
+        public int mood;
+        public string mood_state;  // "happy", "neutral", "sad", "anxious"
+        public string social_tendency;  // "introvert", "extrovert", "neutral"
+
         public bool IsAlive => status == "Alive";
     }
 
@@ -99,6 +104,8 @@ namespace TheIsland.Models
         public int tick;
         public int day;
         public int alive_agents;
+        public string time_of_day;  // "dawn", "day", "dusk", "night"
+        public string weather;      // "Sunny", "Cloudy", "Rainy", etc.
     }
 
     /// <summary>
@@ -129,6 +136,108 @@ namespace TheIsland.Models
         public int day_count;
         public string weather;
         public int resource_level;
+        public int current_tick_in_day;
+        public string time_of_day;  // "dawn", "day", "dusk", "night"
+    }
+
+    /// <summary>
+    /// Weather change event data.
+    /// </summary>
+    [Serializable]
+    public class WeatherChangeData
+    {
+        public string old_weather;
+        public string new_weather;
+        public string message;
+    }
+
+    /// <summary>
+    /// Phase change event data (day/night cycle).
+    /// </summary>
+    [Serializable]
+    public class PhaseChangeData
+    {
+        public string old_phase;
+        public string new_phase;
+        public int day;
+        public string message;
+    }
+
+    /// <summary>
+    /// Day change event data.
+    /// </summary>
+    [Serializable]
+    public class DayChangeData
+    {
+        public int day;
+        public string message;
+    }
+
+    /// <summary>
+    /// Heal event data.
+    /// </summary>
+    [Serializable]
+    public class HealEventData
+    {
+        public string user;
+        public string agent_name;
+        public int hp_restored;
+        public int agent_hp;
+        public int user_gold;
+        public string message;
+    }
+
+    /// <summary>
+    /// Encourage event data.
+    /// </summary>
+    [Serializable]
+    public class EncourageEventData
+    {
+        public string user;
+        public string agent_name;
+        public int mood_boost;
+        public int agent_mood;
+        public int user_gold;
+        public string message;
+    }
+
+    /// <summary>
+    /// Talk event data.
+    /// </summary>
+    [Serializable]
+    public class TalkEventData
+    {
+        public string user;
+        public string agent_name;
+        public string topic;
+        public string response;
+    }
+
+    /// <summary>
+    /// Revive event data.
+    /// </summary>
+    [Serializable]
+    public class ReviveEventData
+    {
+        public string user;
+        public string agent_name;
+        public int user_gold;
+        public string message;
+    }
+
+    /// <summary>
+    /// Social interaction event data.
+    /// </summary>
+    [Serializable]
+    public class SocialInteractionData
+    {
+        public int initiator_id;
+        public string initiator_name;
+        public int target_id;
+        public string target_name;
+        public string interaction_type;  // "chat", "share_food", "help", "argue", "comfort"
+        public string relationship_type;  // "stranger", "friend", "rival", etc.
+        public string dialogue;
     }
 
     /// <summary>
@@ -164,5 +273,25 @@ namespace TheIsland.Models
         public const string USER_UPDATE = "user_update";
         public const string WORLD_UPDATE = "world_update";
         public const string CHECK = "check";
+
+        // Day/Night cycle (Phase 2)
+        public const string TIME_UPDATE = "time_update";
+        public const string PHASE_CHANGE = "phase_change";
+        public const string DAY_CHANGE = "day_change";
+
+        // Weather system (Phase 3)
+        public const string WEATHER_CHANGE = "weather_change";
+        public const string MOOD_UPDATE = "mood_update";
+
+        // New commands (Phase 4)
+        public const string HEAL = "heal";
+        public const string TALK = "talk";
+        public const string ENCOURAGE = "encourage";
+        public const string REVIVE = "revive";
+
+        // Social system (Phase 5)
+        public const string SOCIAL_INTERACTION = "social_interaction";
+        public const string RELATIONSHIP_CHANGE = "relationship_change";
+        public const string AUTO_REVIVE = "auto_revive";
     }
 }

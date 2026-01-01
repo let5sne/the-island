@@ -84,6 +84,9 @@ namespace TheIsland.Visual
             // Add CanvasGroup for fading
             _canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
+            // Create rounded rect sprite for bubble
+            Sprite roundedSprite = CreateRoundedBubbleSprite(32, 32, 10);
+
             // Create outline (slightly larger background)
             var outlineObj = new GameObject("Outline");
             outlineObj.transform.SetParent(transform);
@@ -92,6 +95,8 @@ namespace TheIsland.Visual
             outlineObj.transform.localScale = Vector3.one;
 
             _bubbleOutline = outlineObj.AddComponent<Image>();
+            _bubbleOutline.sprite = roundedSprite;
+            _bubbleOutline.type = Image.Type.Sliced;
             _bubbleOutline.color = outlineColor;
             var outlineRect = outlineObj.GetComponent<RectTransform>();
             outlineRect.anchorMin = Vector2.zero;
@@ -107,6 +112,8 @@ namespace TheIsland.Visual
             bgObj.transform.localScale = Vector3.one;
 
             _bubbleBackground = bgObj.AddComponent<Image>();
+            _bubbleBackground.sprite = roundedSprite;
+            _bubbleBackground.type = Image.Type.Sliced;
             _bubbleBackground.color = bubbleColor;
             var bgRect = bgObj.GetComponent<RectTransform>();
             bgRect.anchorMin = Vector2.zero;
@@ -153,16 +160,87 @@ namespace TheIsland.Visual
             tailRect.anchoredPosition = new Vector2(0, 0);
             tailRect.sizeDelta = new Vector2(24, 16);
 
-            // Create a simple triangle using UI Image with a sprite
-            // For now, use a simple downward-pointing shape
+            // Create triangle sprite for tail
             var tailImage = tail.AddComponent<Image>();
+            tailImage.sprite = CreateTriangleSprite(24, 16);
             tailImage.color = bubbleColor;
 
-            // Note: For a proper triangle, you'd use a custom sprite.
-            // This creates a simple rectangle as placeholder.
-            // In production, replace with a triangle sprite.
-
             return tail;
+        }
+
+        private Sprite CreateRoundedBubbleSprite(int width, int height, int radius)
+        {
+            Texture2D tex = new Texture2D(width, height);
+            tex.filterMode = FilterMode.Bilinear;
+
+            Color[] pixels = new Color[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    bool inRect = true;
+
+                    // Check corners for rounding
+                    if (x < radius && y < radius)
+                    {
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(radius, radius)) <= radius;
+                    }
+                    else if (x >= width - radius && y < radius)
+                    {
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(width - radius - 1, radius)) <= radius;
+                    }
+                    else if (x < radius && y >= height - radius)
+                    {
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(radius, height - radius - 1)) <= radius;
+                    }
+                    else if (x >= width - radius && y >= height - radius)
+                    {
+                        inRect = Vector2.Distance(new Vector2(x, y), new Vector2(width - radius - 1, height - radius - 1)) <= radius;
+                    }
+
+                    pixels[y * width + x] = inRect ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0.5f), 100f,
+                0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
+        }
+
+        private Sprite CreateTriangleSprite(int width, int height)
+        {
+            Texture2D tex = new Texture2D(width, height);
+            tex.filterMode = FilterMode.Bilinear;
+
+            Color[] pixels = new Color[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    // Triangle pointing down
+                    float t = (float)y / height;
+                    float halfWidth = (width / 2f) * (1 - t);
+                    float center = width / 2f;
+
+                    if (x >= center - halfWidth && x <= center + halfWidth)
+                    {
+                        pixels[y * width + x] = Color.white;
+                    }
+                    else
+                    {
+                        pixels[y * width + x] = Color.clear;
+                    }
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 1f), 100f);
         }
         #endregion
 

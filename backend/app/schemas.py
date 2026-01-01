@@ -15,6 +15,7 @@ class EventType(str, Enum):
     TICK = "tick"
     SYSTEM = "system"
     ERROR = "error"
+
     # Island survival events
     AGENTS_UPDATE = "agents_update"      # All agents status broadcast
     AGENT_DIED = "agent_died"            # An agent has died
@@ -23,6 +24,26 @@ class EventType(str, Enum):
     USER_UPDATE = "user_update"          # User gold/status update
     WORLD_UPDATE = "world_update"        # World state update
     CHECK = "check"                      # Status check response
+
+    # Day/Night cycle (Phase 2)
+    TIME_UPDATE = "time_update"          # Time tick update
+    PHASE_CHANGE = "phase_change"        # Dawn/day/dusk/night transition
+    DAY_CHANGE = "day_change"            # New day started
+
+    # Weather system (Phase 3)
+    WEATHER_CHANGE = "weather_change"    # Weather changed
+    MOOD_UPDATE = "mood_update"          # Agent mood changed
+
+    # New commands (Phase 4)
+    HEAL = "heal"                        # User healed an agent
+    TALK = "talk"                        # User talked to an agent
+    ENCOURAGE = "encourage"              # User encouraged an agent
+    REVIVE = "revive"                    # User revived a dead agent
+
+    # Social system (Phase 5)
+    SOCIAL_INTERACTION = "social_interaction"  # Agents interacted
+    RELATIONSHIP_CHANGE = "relationship_change"  # Relationship status changed
+    AUTO_REVIVE = "auto_revive"          # Agent auto-revived (casual mode)
 
 
 class GameEvent(BaseModel):

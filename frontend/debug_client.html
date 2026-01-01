@@ -326,10 +326,64 @@
         .event.feed { border-color: #ffaa00; background: rgba(255, 170, 0, 0.1); color: #ffcc66; }
         .event.agent_died { border-color: #ff4444; background: rgba(255, 68, 68, 0.15); color: #ff8888; }
         .event.agent_speak { border-color: #88ccff; background: rgba(136, 204, 255, 0.1); color: #aaddff; }
+        .event.talk { border-color: #88ccff; background: rgba(136, 204, 255, 0.1); color: #aaddff; }
         .event.check { border-color: #88cc88; background: rgba(136, 204, 136, 0.1); }
+        .event.heal { border-color: #ff88cc; background: rgba(255, 136, 204, 0.1); color: #ffaadd; }
+        .event.encourage { border-color: #ffcc44; background: rgba(255, 204, 68, 0.1); color: #ffdd88; }
+        .event.revive { border-color: #cc88ff; background: rgba(204, 136, 255, 0.1); color: #ddaaff; }
+        .event.auto_revive { border-color: #cc88ff; background: rgba(204, 136, 255, 0.1); color: #ddaaff; }
+        .event.weather_change { border-color: #66cccc; background: rgba(102, 204, 204, 0.1); color: #88dddd; }
+        .event.phase_change { border-color: #ccaa44; background: rgba(204, 170, 68, 0.1); color: #ddcc88; }
+        .event.day_change { border-color: #88ccff; background: rgba(136, 204, 255, 0.15); color: #aaddff; }
+        .event.social_interaction { border-color: #ff8888; background: rgba(255, 136, 136, 0.1); color: #ffaaaa; }
         .event-time { color: #888; font-size: 11px; }
         .event-type { font-weight: bold; text-transform: uppercase; font-size: 11px; }
-        .event-data { margin-top: 5px; }
+        .event-data { margin-top: 5px; white-space: pre-wrap; }
+
+        /* World Display */
+        .world-panel {
+            background: rgba(102, 204, 204, 0.1);
+            border: 1px solid rgba(102, 204, 204, 0.3);
+            border-radius: 12px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            font-size: 1rem;
+        }
+        .world-panel span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Agent Actions */
+        .agent-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .action-btn {
+            padding: 6px 8px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+        .action-btn.feed { background: #88cc88; color: #1a2a1a; }
+        .action-btn.feed:hover { background: #66aa66; }
+        .action-btn.heal { background: #ff88cc; color: #1a2a1a; }
+        .action-btn.heal:hover { background: #ff66bb; }
+        .action-btn.encourage { background: #ffcc44; color: #1a2a1a; }
+        .action-btn.encourage:hover { background: #ffbb22; }
+        .action-btn.talk { background: #88ccff; color: #1a2a1a; }
+        .action-btn.talk:hover { background: #66bbff; }
+        .action-btn.revive { background: #cc88ff; color: #1a2a1a; grid-column: span 2; }
+        .action-btn.revive:hover { background: #bb66ff; }
     </style>
 </head>
 <body>
@@ -356,6 +410,13 @@
             </div>
         </div>
 
+        <!-- World State Panel -->
+        <div class="world-panel" id="worldDisplay">
+            <span>📅 第1天</span>
+            <span>☀️ 白天</span>
+            <span>☀️ Sunny</span>
+        </div>
+
         <!-- Agents Section -->
         <div class="agents-section">
             <div class="speech-bubbles-overlay" id="speechBubblesOverlay"></div>
@@ -379,7 +440,7 @@
                     <button onclick="sendComment()">发送</button>
                 </div>
                 <p style="margin-top: 10px; font-size: 0.85rem; color: #888;">
-                    指令: <code>feed [名字]</code> - 投喂 | <code>check</code> - 查询 | <code>reset</code> - 重新开始
+                    指令: <code>feed/heal/encourage/revive [名字]</code> | <code>talk [名字] [话题]</code> | <code>check</code> | <code>reset</code>
                 </p>
             </div>
 
