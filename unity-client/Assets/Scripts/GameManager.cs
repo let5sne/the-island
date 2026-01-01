@@ -574,18 +574,19 @@ namespace TheIsland.Core
             switch (location.ToLower())
             {
                 case "tree_left":
-                    return new Vector3(-10f, 0f, 8f);
+                    return new Vector3(-12f, 0f, 5.0f); // Phase 20-C.2: Recalibrated
                 case "tree_right":
-                    return new Vector3(10f, 0f, 8f);
+                    return new Vector3(13f, 0f, 5.5f);  // Phase 20-C.2: Recalibrated
                 case "campfire":
                 case "center":
                     return new Vector3(0f, 0f, 0f);
                 case "water":
                 case "beach":
-                    return new Vector3(Random.Range(-5, 5), 0f, 4f);
+                    // Shore starts at Z=7.0. Safe beach area is Z=[3, 6]
+                    return new Vector3(Random.Range(-5, 5), 0f, Random.Range(4, 6));
                 case "nearby":
-                     // Move to random nearby spot (wandering)
-                    return new Vector3(Random.Range(-12, 12), 0f, Random.Range(-2, 6));
+                     // Wandering constrained to dry land Z=[-6, 6]
+                    return new Vector3(Random.Range(-15, 15), 0f, Random.Range(-6, 6));
                 case "herb_patch":
                     // Phase 16: Herb gathering location
                     return new Vector3(-8f, 0f, -5f);

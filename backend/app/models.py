@@ -63,6 +63,9 @@ class Agent(Base):
     # Relationship 2.0 (Phase 17-B)
     social_role = Column(String(20), default="neutral")  # leader, follower, loner, neutral
 
+    # Shelter System (Phase 20-B)
+    is_sheltered = Column(Boolean, default=False)
+
     def __repr__(self):
         return f"<Agent {self.name} ({self.personality}) HP={self.hp} Energy={self.energy} Mood={self.mood}>"
 
@@ -88,7 +91,8 @@ class Agent(Base):
             "location": self.location,
             "is_sick": self.is_sick,
             "immunity": self.immunity,
-            "social_role": self.social_role
+            "social_role": self.social_role,
+            "is_sheltered": self.is_sheltered
         }
 
 

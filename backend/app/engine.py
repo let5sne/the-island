@@ -399,8 +399,10 @@ class GameEngine:
             alive_agents = db.query(Agent).filter(Agent.status == "Alive").all()
 
             for agent in alive_agents:
-                # --- Sickness Mechanics (Phase 15) ---
                 # 1. Contracting Sickness
+                # Phase 20-B: Check if sheltered
+                agent.is_sheltered = agent.location in ["tree_left", "tree_right"]
+                
                 if not agent.is_sick:
                     sickness_chance = 0.01 # Base 1% per tick (every 5s)
                     
@@ -410,6 +412,10 @@ class GameEngine:
                         sickness_chance += 0.05
                     elif current_weather == "Stormy":
                         sickness_chance += 0.10
+                    
+                    # Phase 20-B: Shelter mitigation (Reduce sickness chance by 80%)
+                    if agent.is_sheltered and current_weather in ["Rainy", "Stormy"]:
+                        sickness_chance *= 0.2
                     
                     # Immunity impact (Higher immunity = lower chance)
                     # Immunity 50 -> -2.5%, Immunity 100 -> -5%
@@ -442,7 +448,13 @@ class GameEngine:
                 base_decay = BASE_ENERGY_DECAY_PER_TICK
                 decay = base_decay * config.energy_decay_multiplier
                 decay *= phase_mod.get("energy_decay", 1.0)
-                decay *= weather_mod.get("energy_modifier", 1.0)
+                
+                weather_decay_mod = weather_mod.get("energy_modifier", 1.0)
+                # Phase 20-B: Shelter mitigation (Reduce weather energy penalty by 80%)
+                if agent.is_sheltered and weather_decay_mod > 1.0:
+                    weather_decay_mod = 1.0 + (weather_decay_mod - 1.0) * 0.2
+                    
+                decay *= weather_decay_mod
 
                 agent.energy = max(0, agent.energy - int(decay))
 
@@ -669,6 +681,13 @@ class GameEngine:
                         new_location = random.choice(["tree_left", "tree_right"])
                         should_update = True
                 
+                # Phase 20-B: Seek Shelter during Storms
+                elif world.weather == "Stormy" and not agent.is_sheltered:
+                    if agent.current_action != "Seek Shelter":
+                        new_action = "Seek Shelter"
+                        new_location = random.choice(["tree_left", "tree_right"])
+                        should_update = True
+                
                 # 1.5. Sickness Handling (Phase 16)
                 elif agent.is_sick:
                     inv = self._get_inventory(agent)
@@ -877,12 +896,13 @@ class GameEngine:
         """Fire-and-forget LLM call to generate agent speech."""
         try:
             class AgentSnapshot:
-                def __init__(self, name, personality, hp, energy, mood):
+                def __init__(self, name, personality, hp, energy, mood, is_sheltered=False):
                     self.name = name
                     self.personality = personality
                     self.hp = hp
                     self.energy = energy
                     self.mood = mood
+                    self.is_sheltered = is_sheltered
 
             agent_snapshot = AgentSnapshot(
                 agent_name, agent_personality, agent_hp, agent_energy, agent_mood
@@ -914,21 +934,23 @@ class GameEngine:
             agent_data = {
                 "id": agent.id, "name": agent.name, "personality": agent.personality,
                 "hp": agent.hp, "energy": agent.energy, "mood": agent.mood,
-                "mood_state": agent.mood_state
+                "mood_state": agent.mood_state, "is_sheltered": agent.is_sheltered
             }
 
         try:
             class AgentSnapshot:
-                def __init__(self, name, personality, hp, energy, mood):
+                def __init__(self, name, personality, hp, energy, mood, is_sheltered=False):
                     self.name = name
                     self.personality = personality
                     self.hp = hp
                     self.energy = energy
                     self.mood = mood
+                    self.is_sheltered = is_sheltered
 
             agent_snapshot = AgentSnapshot(
                 agent_data["name"], agent_data["personality"],
-                agent_data["hp"], agent_data["energy"], agent_data["mood"]
+                agent_data["hp"], agent_data["energy"], agent_data["mood"],
+                agent_data.get("is_sheltered", False)
             )
 
             text = await llm_service.generate_idle_chat(agent_snapshot, weather, time_of_day)

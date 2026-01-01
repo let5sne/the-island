@@ -211,6 +211,22 @@ namespace TheIsland.Visual
 
             // Phase 19: Smooth UI Bar Transitions
             UpdateSmoothBars();
+
+            // Phase 20-C: Hard boundary enforcement (No water allowed!)
+            ClampPosition();
+        }
+
+        private void ClampPosition()
+        {
+            // Safety boundaries for the island beach - Phase 20-C.2 Recalibrated (Shore at Z=7.0)
+            // X: ~[-25, 25], Z: ~[-10, 6.5]
+            float clampedX = Mathf.Clamp(transform.position.x, -25f, 25f);
+            float clampedZ = Mathf.Clamp(transform.position.z, -10f, 6.5f); // Stay clearly on land
+            
+            if (clampedX != transform.position.x || clampedZ != transform.position.z)
+            {
+                transform.position = new Vector3(clampedX, transform.position.y, clampedZ);
+            }
         }
 
         private void UpdateGrounding()
@@ -223,6 +239,13 @@ namespace TheIsland.Visual
                 float bopY = (_spriteRenderer != null) ? _spriteRenderer.transform.localPosition.y : 0;
                 float shadowScale = Mathf.Clamp(1.0f - (bopY * 0.5f), 0.5f, 1.2f);
                 _shadowObj.transform.localScale = new Vector3(1.2f * shadowScale, 0.6f * shadowScale, 1f);
+                
+                // Phase 20-B: Darker shadow when sheltered (under tree)
+                if (_shadowRenderer != null)
+                {
+                    float targetAlpha = (_currentData != null && _currentData.is_sheltered) ? 0.6f : 0.3f;
+                    _shadowRenderer.color = new Color(0, 0, 0, Mathf.Lerp(_shadowRenderer.color.a, targetAlpha, Time.deltaTime * 5f));
+                }
             }
 
             if (_isMoving)
@@ -1340,7 +1363,7 @@ namespace TheIsland.Visual
         }
 
         /// <summary>
-        /// Display social role indicator based on agent's role.
+        /// Display social role and shelter indicators based on agent's state.
         /// </summary>
         private void UpdateSocialRoleDisplay()
         {
@@ -1354,9 +1377,11 @@ namespace TheIsland.Visual
                 _ => ""
             };
 
-            // Append role icon to name (strip any existing icons first)
-            string baseName = _currentData.name;
-            _nameLabel.text = baseName + roleIcon;
+            // Phase 20-B: Shelter Icon
+            string shelterIcon = (_currentData != null && _currentData.is_sheltered) ? " <color=#90EE90>🏠</color>" : "";
+
+            // Update name label with icons
+            _nameLabel.text = _currentData.name + roleIcon + shelterIcon;
         }
         #endregion
 

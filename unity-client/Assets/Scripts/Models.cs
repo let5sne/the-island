@@ -59,6 +59,9 @@ namespace TheIsland.Models
         // Relationship 2.0 (Phase 17-B)
         public string social_role;  // "leader", "follower", "loner", "neutral"
 
+        // Shelter System (Phase 20-B)
+        public bool is_sheltered;
+
         public bool IsAlive => status == "Alive";
     }
 

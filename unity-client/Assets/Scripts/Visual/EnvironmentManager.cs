@@ -276,9 +276,9 @@ namespace TheIsland.Visual
             _groundPlane = GameObject.CreatePrimitive(PrimitiveType.Quad);
             _groundPlane.name = "GroundPlane";
             _groundPlane.transform.SetParent(transform);
-            _groundPlane.transform.position = new Vector3(0, -0.5f, 5);
+            _groundPlane.transform.position = new Vector3(0, -0.5f, 0); // Phase 20-C.2: Center ground
             _groundPlane.transform.rotation = Quaternion.Euler(90, 0, 0);
-            _groundPlane.transform.localScale = new Vector3(40, 20, 1);
+            _groundPlane.transform.localScale = new Vector3(80, 24, 1); // Phase 20-C.2: Larger sand area Z=[-12, 12]
 
             // Create sand texture
             _groundMaterial = new Material(Shader.Find("Unlit/Texture"));
@@ -325,9 +325,9 @@ namespace TheIsland.Visual
             _waterPlane = GameObject.CreatePrimitive(PrimitiveType.Quad);
             _waterPlane.name = "WaterPlane";
             _waterPlane.transform.SetParent(transform);
-            _waterPlane.transform.position = new Vector3(0, -0.3f, 12);
+            _waterPlane.transform.position = new Vector3(0, -0.3f, 15); // Phase 20-C.2: Move water back (Shore starts at ~7.0)
             _waterPlane.transform.rotation = Quaternion.Euler(90, 0, 0);
-            _waterPlane.transform.localScale = new Vector3(60, 15, 1);
+            _waterPlane.transform.localScale = new Vector3(100, 16, 1); // Range Z=[7, 23]
 
             // Create water material
             if (customWaterMaterial != null)
@@ -409,16 +409,17 @@ namespace TheIsland.Visual
 
         private void CreateDecorations()
         {
-            // Create palm tree silhouettes
-            CreatePalmTree(new Vector3(-8, 0, 8), 2.5f);
-            CreatePalmTree(new Vector3(-10, 0, 10), 3f);
-            CreatePalmTree(new Vector3(9, 0, 7), 2.2f);
-            CreatePalmTree(new Vector3(11, 0, 9), 2.8f);
+            // Create palm tree silhouettes - Recalibrated for Phase 20-C (Stay on Land Z < 4.5)
+            // Create palm tree silhouettes - Recalibrated for Phase 20-C.2 (Safe dry land Z < 6.0)
+            CreatePalmTree(new Vector3(-12, 0, 5.0f), 2.8f);
+            CreatePalmTree(new Vector3(-15, 0, 4.0f), 3.2f);
+            CreatePalmTree(new Vector3(13, 0, 5.5f), 2.5f);
+            CreatePalmTree(new Vector3(16, 0, 4.5f), 3.0f);
 
-            // Create rocks
-            CreateRock(new Vector3(-5, 0, 4), 0.5f);
-            CreateRock(new Vector3(6, 0, 5), 0.7f);
-            CreateRock(new Vector3(-7, 0, 6), 0.4f);
+            // Create rocks - Recalibrated for Phase 20-C.2
+            CreateRock(new Vector3(-8, 0, 4.5f), 0.5f);
+            CreateRock(new Vector3(10, 0, 5.5f), 0.7f);
+            CreateRock(new Vector3(-14, 0, 3.0f), 0.4f);
 
             CreateGroundDetails();
         }
