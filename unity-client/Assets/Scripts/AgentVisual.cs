@@ -64,6 +64,7 @@ namespace TheIsland.Visual
         private Billboard _spriteBillboard;
         private Billboard _uiBillboard;
         private Camera _mainCamera;
+        private AgentAnimator _animator;
         #endregion
 
         #region State
@@ -74,7 +75,6 @@ namespace TheIsland.Visual
 
         // Animation state
         private float _idleAnimTimer;
-        private float _breathScale = 1f;
         private Vector3 _originalSpriteScale;
         private float _bobOffset;
 
@@ -102,6 +102,12 @@ namespace TheIsland.Visual
         private void Awake()
         {
             _mainCamera = Camera.main;
+            _spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+            
+            // Phase 19-B: Ensure AgentAnimator is present
+            _animator = GetComponent<AgentAnimator>();
+            if (_animator == null) _animator = gameObject.AddComponent<AgentAnimator>();
+            
             CreateVisuals();
         }
 
@@ -132,38 +138,16 @@ namespace TheIsland.Visual
                 }
             }
 
-            // Idle breathing animation (Squash and Stretch)
-            _idleAnimTimer += Time.deltaTime;
-            
-            // Breathing: Scale Y up, Scale X down (preserving volume)
-            float breath = Mathf.Sin(_idleAnimTimer * 3f) * 0.05f;
-            _breathScale = 1f + breath;
-            float antiBreath = 1f - (breath * 0.5f); // Squash X when stretching Y
-
-            // Bobbing: Move up and down (only when idle)
-            if (!_isMoving)
+            if (_isMoving)
             {
-                _bobOffset = Mathf.Sin(_idleAnimTimer * 2f) * 0.08f;
-            }
-            else
-            {
-                // Hop while moving
-                _bobOffset = Mathf.Abs(Mathf.Sin(_idleAnimTimer * 10f)) * 0.2f;
+                MoveTowardsTarget();
             }
 
-            if (_spriteRenderer != null && _originalSpriteScale != Vector3.zero)
+            // Phase 19-B: Use AgentAnimator for procedural movement/idle
+            if (_animator != null)
             {
-                // Apply squash & stretch
-                _spriteRenderer.transform.localScale = new Vector3(
-                    _originalSpriteScale.x * antiBreath,
-                    _originalSpriteScale.y * _breathScale,
-                    _originalSpriteScale.z
-                );
-
-                // Apply bobbing position
-                var pos = _spriteRenderer.transform.localPosition;
-                pos.y = 1f + _bobOffset;
-                _spriteRenderer.transform.localPosition = pos;
+                float velocity = _isMoving ? _moveSpeed : 0;
+                _animator.SetMovement(velocity, _moveSpeed);
             }
 
             // Phase 19: Smooth UI Bar Transitions
@@ -210,8 +194,20 @@ namespace TheIsland.Visual
             // But we want to keep them on the "ground" plane roughly.
             // Let's preserve current Y if target Y is 0 (which usually means undefined in 2D topdown logic, but here we are 2.5D)
             // The spawn positions have Y=0.
-            _targetPosition.y = transform.position.y; 
+            _targetPosition.y = transform.position.y;
             _isMoving = true;
+        }
+
+        private void MoveTowardsTarget()
+        {
+            Vector3 direction = (_targetPosition - transform.position).normalized;
+            transform.position = Vector3.MoveTowards(transform.position, _targetPosition, _moveSpeed * Time.deltaTime);
+
+            // Stop when close enough
+            if (Vector3.Distance(transform.position, _targetPosition) < 0.1f)
+            {
+                _isMoving = false;
+            }
         }
 
         private IEnumerator JumpRoutine()
@@ -294,6 +290,9 @@ namespace TheIsland.Visual
             byte[] fileData = System.IO.File.ReadAllBytes(path);
             Texture2D tex = new Texture2D(2, 2);
             tex.LoadImage(fileData);
+            
+            // Phase 19-B: Fix white background transparency
+            ProcessTransparency(tex);
 
             // Slice the 1x3 collection (3 characters in a row)
             int charIndex = id % 3;
@@ -306,6 +305,22 @@ namespace TheIsland.Visual
                 _spriteRenderer.sprite = characterSprite;
                 _spriteRenderer.color = Color.white;
             }
+        }
+
+        private void ProcessTransparency(Texture2D tex)
+        {
+            if (tex == null) return;
+            Color[] pixels = tex.GetPixels();
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                // If the pixel is very close to white, make it transparent
+                if (pixels[i].r > 0.95f && pixels[i].g > 0.95f && pixels[i].b > 0.95f)
+                {
+                    pixels[i] = Color.clear;
+                }
+            }
+            tex.SetPixels(pixels);
+            tex.Apply();
         }
 
         private void ApplyAgentColor(int agentId)

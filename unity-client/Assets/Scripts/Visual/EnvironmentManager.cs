@@ -111,7 +111,7 @@ namespace TheIsland.Visual
             CachePalmTrees();
 
             // Phase 19: Add Visual Effects Manager
-            if (FindObjectOfType<VisualEffectsManager>() == null)
+            if (FindFirstObjectByType<VisualEffectsManager>() == null)
             {
                 new GameObject("VisualEffectsManager").AddComponent<VisualEffectsManager>();
             }
@@ -233,45 +233,6 @@ namespace TheIsland.Visual
 
         private Material CreateGradientMaterial()
         {
-            // Create a simple shader for vertical gradient
-            string shaderCode = @"
-                Shader ""Custom/SkyGradient"" {
-                    Properties {
-                        _TopColor (""Top Color"", Color) = (0.4, 0.7, 1, 1)
-                        _BottomColor (""Bottom Color"", Color) = (0.7, 0.9, 1, 1)
-                    }
-                    SubShader {
-                        Tags { ""Queue""=""Background"" ""RenderType""=""Opaque"" }
-                        Pass {
-                            ZWrite Off
-                            CGPROGRAM
-                            #pragma vertex vert
-                            #pragma fragment frag
-                            #include ""UnityCG.cginc""
-
-                            fixed4 _TopColor;
-                            fixed4 _BottomColor;
-
-                            struct v2f {
-                                float4 pos : SV_POSITION;
-                                float2 uv : TEXCOORD0;
-                            };
-
-                            v2f vert(appdata_base v) {
-                                v2f o;
-                                o.pos = UnityObjectToClipPos(v.vertex);
-                                o.uv = v.texcoord;
-                                return o;
-                            }
-
-                            fixed4 frag(v2f i) : SV_Target {
-                                return lerp(_BottomColor, _TopColor, i.uv.y);
-                            }
-                            ENDCG
-                        }
-                    }
-                }";
-
             // Since we can't create shaders at runtime easily, use a texture-based approach
             return CreateGradientTextureMaterial();
         }
