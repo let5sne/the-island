@@ -76,13 +76,6 @@ class LLMService:
         self._mock_mode = os.environ.get("LLM_MOCK_MODE", "").lower() == "true"
         self._acompletion = None
 
-        # Auto-add provider prefix for custom endpoints
-        # LiteLLM requires format: provider/model (e.g., openai/gpt-4)
-        # See: https://docs.litellm.ai/docs/providers
-        if self._api_base and "/" not in self._model:
-            self._model = f"openai/{self._model}"
-            logger.info(f"Auto-prefixed model name: {self._model} (custom endpoint detected)")
-
         if self._mock_mode:
             logger.info("LLMService running in MOCK mode (forced by LLM_MOCK_MODE)")
             return
