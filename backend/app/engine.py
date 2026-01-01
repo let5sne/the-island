@@ -202,8 +202,30 @@ class GameEngine:
         """Broadcast all agents' current status."""
         with get_db_session() as db:
             agents = db.query(Agent).all()
-            agents_data = [agent.to_dict() for agent in agents]
+            agents_data = []
+            for agent in agents:
+                data = agent.to_dict()
+                # Phase 21-B: Inject relationships
+                data["relationships"] = self._get_agent_relationships(db, agent.id)
+                agents_data.append(data)
         await self._broadcast_event(EventType.AGENTS_UPDATE, {"agents": agents_data})
+
+    def _get_agent_relationships(self, db, agent_id: int) -> list:
+        """Fetch significant relationships for an agent."""
+        # Phase 21-B: Only send non-stranger relationships to save bandwidth
+        rels = db.query(AgentRelationship).filter(
+            AgentRelationship.agent_from_id == agent_id,
+            AgentRelationship.relationship_type != "stranger"
+        ).all()
+        
+        results = []
+        for r in rels:
+            results.append({
+                "target_id": r.agent_to_id,
+                "type": r.relationship_type,
+                "affection": r.affection
+            })
+        return results
 
     async def _broadcast_world_status(self) -> None:
         """Broadcast world state."""
@@ -719,11 +741,31 @@ class GameEngine:
                         target_name = friend.name
                         should_update = True
                 
-                # 3. Boredom / Wandering
-                elif agent.current_action == "Idle" or agent.current_action is None:
+                # Phase 21: Social Interaction (Group Dance)
+                # If Happy (>80) and near others, chance to start dancing
+                elif agent.mood > 80 and agent.current_action != "Dance":
+                    # Check for nearby agents (same location)
+                    nearby_count = 0
+                    for other in agents:
+                         if other.id != agent.id and other.status == "Alive" and other.location == agent.location:
+                            nearby_count += 1
+                    
+                    # Dance Party Trigger! (Need at least 1 friend, 10% chance)
+                    if nearby_count >= 1 and random.random() < 0.10:
+                        new_action = "Dance"
+                        # Keep location same
+                        new_location = agent.location
+                        should_update = True
+
+                # 2. Idle Behavior (Default)
+                elif agent.current_action not in ["Sleep", "Chat", "Dance"]:
+                    # Random chance to move nearby or chat
                     if random.random() < 0.3:
                         new_action = "Wander"
-                        new_location = "nearby"
+                        new_location = "nearby" # Will be randomized in Unity/GameManager mapping
+                        should_update = True
+                    elif random.random() < 0.1:
+                        new_action = "Idle"
                         should_update = True
                 
                 # 4. Finish Tasks (Simulation)

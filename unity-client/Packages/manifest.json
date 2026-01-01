@@ -3,9 +3,11 @@
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity",
     "com.endel.nativewebsocket": "https://github.com/endel/NativeWebSocket.git#upm",
     "com.unity.2d.enhancers": "1.0.0",
+    "com.unity.ai.navigation": "2.0.9",
     "com.unity.feature.2d": "2.0.2",
     "com.unity.inputsystem": "1.17.0",
     "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.postprocessing": "3.4.0",
     "com.unity.textmeshpro": "3.0.6",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
@@ -40,7 +42,6 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
-    "com.unity.modules.xr": "1.0.0",
-    "com.unity.postprocessing": "3.4.0"
+    "com.unity.modules.xr": "1.0.0"
   }
 }

@@ -28,6 +28,8 @@ namespace TheIsland
         private Vector3 _currentVelocity;
         private float _velocityPercentage; // 0 to 1
         private bool _isMoving;
+        private bool _isDancing; // Phase 21
+        private bool _isWaving; // Phase 21
         private float _jiggleOffset;
         private float _jiggleVelocity;
 
@@ -112,6 +114,12 @@ namespace TheIsland
             {
                 AnimateIdle();
             }
+            
+            // Phase 21: Override for Dance/Wave
+            if (_isDancing) AnimateDance();
+            if (_isWaving) AnimateWave();
+
+            // Smoothly apply transforms
 
             // Smoothly apply transforms
             float lerpSpeed = 12f;
@@ -154,6 +162,47 @@ namespace TheIsland
             float stretch = 1f + bop;
             float squash = 1f / stretch;
             _targetScale = new Vector3(_originalScale.x * squash, _originalScale.y * stretch, _originalScale.z);
+        }
+
+        // Phase 21: Social Actions
+        public void SetDancing(bool dancing)
+        {
+            _isDancing = dancing;
+        }
+
+        public void SetWaving(bool waving)
+        {
+            _isWaving = waving;
+        }
+
+        private void AnimateDance()
+        {
+            // Fast rhythmic bounce (130 BPM style)
+            float cycle = Time.time * 15f; 
+            float danceBounce = Mathf.Abs(Mathf.Sin(cycle)) * 0.15f;
+            float danceTilt = Mathf.Sin(cycle * 0.5f) * 10f;
+
+            // Apply dance transforms
+            _targetLocalPos = new Vector3(0, danceBounce, 0);
+            _targetLocalRot = Quaternion.Euler(0, 0, danceTilt);
+
+            // Strong squash/stretch on the beat
+            float stretch = 1f + danceBounce * 1.5f;
+            float squash = 1f / stretch;
+            _targetScale = new Vector3(_originalScale.x * squash, _originalScale.y * stretch, _originalScale.z);
+        }
+
+        private void AnimateWave()
+        {
+            // Fast waving rotation
+            float waveCycle = Time.time * 20f;
+            float waveTilt = Mathf.Sin(waveCycle) * 20f; // Exaggerated tilt
+
+            _targetLocalRot = Quaternion.Euler(0, 0, waveTilt);
+            
+            // Slight jump for excitement
+            float jumpCurve = Mathf.Abs(Mathf.Sin(Time.time * 5f)) * 0.1f;
+            _targetLocalPos = new Vector3(0, jumpCurve, 0);
         }
 
         private IEnumerator ActionPulseRoutine(float duration, float targetScaleY)

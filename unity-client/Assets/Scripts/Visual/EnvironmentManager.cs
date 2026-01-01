@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using Unity.AI.Navigation;
 using UnityEngine;
+using UnityEngine.AI;
 using TheIsland.Core;
 using TheIsland.Network;
 using TheIsland.Models;
@@ -76,6 +78,9 @@ namespace TheIsland.Visual
         private Color _targetSkyTop, _targetSkyBottom;
         private Color _currentSkyTop, _currentSkyBottom;
         private List<Transform> _palmTrees = new List<Transform>();
+        
+        // Phase 20-F: NavMesh Surface
+        private NavMeshSurface _navMeshSurface;
         #endregion
 
         #region Unity Lifecycle
@@ -114,6 +119,12 @@ namespace TheIsland.Visual
             if (FindFirstObjectByType<VisualEffectsManager>() == null)
             {
                 new GameObject("VisualEffectsManager").AddComponent<VisualEffectsManager>();
+            }
+
+            if (Application.isPlaying)
+            {
+                // Phase 20-F: Build NavMesh at Runtime
+                BuildRuntimeNavMesh();
             }
         }
 
@@ -203,6 +214,23 @@ namespace TheIsland.Visual
             CreateClouds();
         }
 
+        private void BuildRuntimeNavMesh()
+        {
+            // Ensure we have a NavMeshSurface component
+            if (_navMeshSurface == null)
+            {
+                _navMeshSurface = gameObject.AddComponent<NavMeshSurface>();
+            }
+
+            // Configure for 2D/2.5D agent
+            _navMeshSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            _navMeshSurface.collectObjects = CollectObjects.Children; // Collect ground and obstacles
+            
+            // Rebuild
+            _navMeshSurface.BuildNavMesh();
+            Debug.Log("[EnvironmentManager] Runtime NavMesh Built.");
+        }
+
         private void CreateSky()
         {
             // Create a gradient sky using a camera background shader
@@ -219,7 +247,7 @@ namespace TheIsland.Visual
             Destroy(skyObj.GetComponent<Collider>());
 
             // Create gradient material
-            _skyMaterial = CreateGradientMaterial();
+            _skyMaterial = CreateGradientTextureMaterial();
             skyObj.GetComponent<Renderer>().material = _skyMaterial;
             skyObj.GetComponent<Renderer>().sortingOrder = -100;
 
@@ -449,6 +477,13 @@ namespace TheIsland.Visual
             float spriteHeightUnits = trunkRenderer.sprite.rect.height / trunkRenderer.sprite.pixelsPerUnit;
             float normScale = scale / spriteHeightUnits;
             trunkSprite.transform.localScale = new Vector3(normScale, normScale, 1);
+
+            // Phase 20-F: NavMesh Obstacle
+            var obstacle = treeObj.AddComponent<NavMeshObstacle>();
+            obstacle.shape = NavMeshObstacleShape.Box;
+            obstacle.center = new Vector3(0, 0.5f * scale, 0); // Center at base, scaled height
+            obstacle.size = new Vector3(0.5f * normScale, 1f * scale, 0.5f * normScale); // Trunk size, scaled
+            obstacle.carving = true; // Force agents to walk around
         }
 
         private Texture2D _envTexture;
@@ -630,6 +665,13 @@ namespace TheIsland.Visual
             float spriteWidthUnits = rockRenderer.sprite.rect.width / rockRenderer.sprite.pixelsPerUnit;
             float normScale = scale / spriteWidthUnits;
             rockObj.transform.localScale = Vector3.one * normScale;
+
+            // Phase 20-F: NavMesh Obstacle
+            var obstacle = rockObj.AddComponent<NavMeshObstacle>();
+            obstacle.shape = NavMeshObstacleShape.Box;
+            obstacle.center = new Vector3(0, 0.25f * scale, 0); // Center at base, scaled height
+            obstacle.size = new Vector3(0.8f * normScale, 0.5f * scale, 0.8f * normScale); // Rock size, scaled
+            obstacle.carving = true; // Force agents to walk around
         }
 
         private Sprite CreateRockSprite()

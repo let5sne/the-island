@@ -61,8 +61,22 @@ namespace TheIsland.Models
 
         // Shelter System (Phase 20-B)
         public bool is_sheltered;
+        
+        // Phase 21-B: Relationships Sync
+        public List<RelationshipData> relationships;
 
         public bool IsAlive => status == "Alive";
+    }
+
+    /// <summary>
+    /// Relationship entry for Phase 21-B.
+    /// </summary>
+    [Serializable]
+    public class RelationshipData
+    {
+        public int target_id;
+        public string type;       // "friend", "close_friend", "rival"
+        public int affection;
     }
 
     /// <summary>

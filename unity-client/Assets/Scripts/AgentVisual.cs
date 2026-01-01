@@ -1,9 +1,12 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.UI;
 using TMPro;
 using TheIsland.Models;
 using TheIsland.Network;
+using TheIsland.Core; // Added for VFXManager
 
 namespace TheIsland.Visual
 {
@@ -65,6 +68,7 @@ namespace TheIsland.Visual
         private Billboard _uiBillboard;
         private Camera _mainCamera;
         private AgentAnimator _animator;
+        private NavMeshAgent _navAgent; // Added NavMeshAgent
         #endregion
 
         #region State
@@ -86,6 +90,9 @@ namespace TheIsland.Visual
         private GameObject _shadowObj;
         private SpriteRenderer _shadowRenderer;
         private float _footstepTimer;
+        private float _lastEmoteTime;
+        private float _lastMoveTime; // Added for NavMesh movement
+        private float _lastFootstepTime; // Added for NavMesh movement
 
         // UI Smoothing (Phase 19)
         private float _currentHpPercent;
@@ -94,6 +101,11 @@ namespace TheIsland.Visual
         private float _targetHpPercent;
         private float _targetEnergyPercent;
         private float _targetMoodPercent;
+
+        // Phase 21-B: Social Visuals
+        private float _socialCheckTimer;
+        private Dictionary<int, RelationshipData> _relationships = new Dictionary<int, RelationshipData>();
+        private Dictionary<int, float> _lastGreetingTimes = new Dictionary<int, float>(); // Cooldown per agent
         #endregion
 
         #region Properties
@@ -112,6 +124,19 @@ namespace TheIsland.Visual
             _animator = GetComponent<AgentAnimator>();
             if (_animator == null) _animator = gameObject.AddComponent<AgentAnimator>();
             
+            // Phase 20-F: NavMeshAgent
+            _navAgent = GetComponent<NavMeshAgent>();
+            if (_navAgent == null) _navAgent = gameObject.AddComponent<NavMeshAgent>();
+            
+            _navAgent.speed = _moveSpeed;
+            _navAgent.acceleration = 12f;
+            _navAgent.angularSpeed = 0f; // 2D Sprite, no rotation
+            _navAgent.radius = 0.3f; // Small footprint
+            _navAgent.height = 1.5f;
+            _navAgent.updateRotation = false;
+            _navAgent.updateUpAxis = true; // Use 3D physics (X-Z plane)
+            _navAgent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+
             CreateVisuals();
             CreateShadow();
             _lastPosition = transform.position;
@@ -149,35 +174,70 @@ namespace TheIsland.Visual
 
         private void Update()
         {
-            if (!IsAlive) return;
+            if (!IsAlive)
+            {
+                if (_navAgent.enabled) _navAgent.isStopped = true;
+                return;
+            }
 
-            // Phase 19-D: Apply soft-repulsion to prevent crowding
-            Vector3 repulsion = CalculateRepulsion();
+            // Phase 21: Handle Dance/Action Disable
+            bool isDancing = (_currentData != null && _currentData.current_action == "Dance");
+            if (_animator != null) _animator.SetDancing(isDancing);
+
+            if (isDancing)
+            {
+                if (_navAgent.enabled) _navAgent.isStopped = true;
+                
+                if (Time.time - _lastEmoteTime > 2f) 
+                {
+                    ShowEmotion("music");
+                    _lastEmoteTime = Time.time;
+                }
+                return;
+            }
             
-            // Handle Movement
+            if (_navAgent.enabled) _navAgent.isStopped = false;
+
+            // Handle Movement via NavMesh
             if (_isMoving)
             {
-                // Simple steering toward target
-                Vector3 moveDir = (_targetPosition - transform.position).normalized;
-                Vector3 finalVelocity = (moveDir * _moveSpeed) + repulsion;
-                
-                transform.position += finalVelocity * Time.deltaTime;
+                 // Phase 20-E: Apply soft constraints to target before setting destination
+                 // We offset the target based on shoreline repulsion, rather than applying force to velocity
+                 Vector3 instinctOffset = CalculateInstinctOffset(_targetPosition);
+                 Vector3 safeTarget = _targetPosition + instinctOffset;
+                 
+                 _navAgent.SetDestination(safeTarget);
+                 
+                 // Sync Animator with NavAgent velocity
+                 Vector3 vel = _navAgent.velocity;
+                 
+                 // Manual flipping based on velocity X
+                 if (Mathf.Abs(vel.x) > 0.1f)
+                 {
+                     bool flip = vel.x < 0;
+                     if (_spriteRenderer.flipX != flip) _spriteRenderer.flipX = flip;
+                 }
+                 
+                 if (_animator != null) _animator.SetMovement(vel);
 
-                // Flip sprite based on direction
-                if (_spriteRenderer != null && Mathf.Abs(moveDir.x) > 0.01f)
-                {
-                    _spriteRenderer.flipX = moveDir.x < 0;
-                }
-
-                if (Vector3.Distance(transform.position, _targetPosition) < 0.1f)
-                {
-                    _isMoving = false;
-                }
+                 if (vel.sqrMagnitude > 0.1f)
+                 {
+                     _lastMoveTime = Time.time;
+                     if (Time.time - _lastFootstepTime > 0.3f)
+                     {
+                         VFXManager.Instance.SpawnFootstepDust(transform.position);
+                         _lastFootstepTime = Time.time;
+                     }
+                 }
+                 else
+                 {
+                     // Agent might be moving but stuck or thinking
+                 }
             }
-            else if (repulsion.sqrMagnitude > 0.001f)
+            else
             {
-                // Push away even when idle
-                transform.position += repulsion * Time.deltaTime;
+                 if (_navAgent.enabled && _navAgent.isOnNavMesh) _navAgent.ResetPath();
+                 if (_animator != null) _animator.SetMovement(Vector3.zero);
             }
 
             // Phase 19-D: Dynamic Z-Sorting
@@ -198,10 +258,14 @@ namespace TheIsland.Visual
             }
 
             // Phase 19-E: Social Orientation (Interaction Facing)
+            // Phase 19-E: Social Orientation (Interaction Facing)
             if (!_isMoving)
             {
                 FaceInteractionTarget();
             }
+
+            // Phase 21-B: Social Visuals (Heart/Wave)
+            CheckSocialInteractions();
 
             // Phase 19-F: AAA Grounding (Shadow & Footsteps)
             UpdateGrounding();
@@ -330,6 +394,21 @@ namespace TheIsland.Visual
                 for (int y = 10; y < 24; y++) tex.SetPixel(16, y, iconColor);
                 tex.SetPixel(16, 8, iconColor);
             }
+            // Phase 21-B: Heart emote
+            else if (type == "heart") {
+                Color heartColor = new Color(1f, 0.4f, 0.5f);
+                for (int x=0; x<size; x++) {
+                     for (int y=0; y<size; y++) {
+                         // Simple implicit heart shape equation: (x^2+y^2-1)^3 - x^2*y^3 <= 0
+                         // scaled to fit 32x32
+                         float u = (x - 16) / 10f;
+                         float v = (y - 14) / 10f;
+                         if ((u*u + v*v - 1)*(u*u + v*v - 1)*(u*u + v*v - 1) - u*u*v*v*v <= 0) {
+                             tex.SetPixel(x, y, heartColor);
+                         }
+                     }
+                }
+            }
 
             tex.Apply();
             return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
@@ -380,6 +459,22 @@ namespace TheIsland.Visual
                 }
             }
             return force;
+        }
+
+        /// <summary>
+        /// Determine instinctual offset for a target position.
+        /// If target is too close to water, aim slightly inland.
+        /// </summary>
+        private Vector3 CalculateInstinctOffset(Vector3 intendedTarget)
+        {
+            float fearThreshold = 5.0f; // Start getting anxious
+            if (intendedTarget.z > fearThreshold)
+            {
+                // Push target back to safety
+                float overshoot = intendedTarget.z - fearThreshold;
+                return new Vector3(0, 0, -overshoot * 1.5f);
+            }
+            return Vector3.zero;
         }
 
         private void UpdateSmoothBars()
@@ -491,6 +586,75 @@ namespace TheIsland.Visual
 
             UpdateStats(data);
             Debug.Log($"[AgentVisual] Initialized: {data.name}");
+            _relationships.Clear();
+            if (data.relationships != null)
+            {
+                foreach (var r in data.relationships)
+                {
+                    _relationships[r.target_id] = r;
+                }
+            }
+        }
+
+        private void CheckSocialInteractions()
+        {
+            _socialCheckTimer += Time.deltaTime;
+            if (_socialCheckTimer < 1.0f) return; // Check every 1s
+            _socialCheckTimer = 0;
+
+            if (GameManager.Instance == null) return;
+
+            foreach (var kvp in GameManager.Instance.AllAgentVisuals)
+            {
+                int otherId = kvp.Key;
+                AgentVisual other = kvp.Value;
+
+                if (otherId == _agentId || !other.IsAlive) continue;
+
+                float dist = Vector3.Distance(transform.position, other.transform.position);
+
+                // If close enough (< 2.5m)
+                if (dist < 2.5f)
+                {
+                    // Check if we have a special relationship
+                    if (_relationships.TryGetValue(otherId, out RelationshipData rel))
+                    {
+                        // Logic for Close Friend / Friend
+                        if (rel.type == "close_friend" || rel.type == "friend")
+                        {
+                            // Check greeting cooldown (e.g., once every 60s per friend)
+                            if (!_lastGreetingTimes.ContainsKey(otherId) || Time.time - _lastGreetingTimes[otherId] > 60f)
+                            {
+                                // Trigger Greet
+                                TriggerSocialGreet(otherId, rel.type);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void TriggerSocialGreet(int targetId, string type)
+        {
+            _lastGreetingTimes[targetId] = Time.time;
+            
+            // Visuals
+            string emote = (type == "close_friend") ? "heart" : "music"; // Heart for close friends, music note/smile for friends
+            ShowEmotion(emote);
+
+            // Animation
+            if (_animator != null)
+            {
+                _animator.SetWaving(true);
+                // Stop waving after 2s
+                StartCoroutine(StopWavingAfterDelay(2.0f));
+            }
+        }
+
+        private IEnumerator StopWavingAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            if (_animator != null) _animator.SetWaving(false);
         }
 
         private void TryLoadPremiumSprite(int id)
@@ -1280,7 +1444,24 @@ namespace TheIsland.Visual
                 {
                     RegeneratePlaceholderSprite();
                 }
+                // Only regenerate if using placeholder sprite
+                if (characterSprite == null && _spriteRenderer != null)
+                {
+                    RegeneratePlaceholderSprite();
+                }
             }
+            
+            // Phase 21-B: Update Relationship Data
+            if (data.relationships != null)
+            {
+                // Clear and rebuild to ensure freshness
+                _relationships.Clear();
+                foreach (var r in data.relationships)
+                {
+                    _relationships[r.target_id] = r;
+                }
+            }
+            
             if (_moodText != null)
             {
                 string moodIndicator = GetMoodEmoji(data.mood_state);

@@ -90,8 +90,11 @@ namespace TheIsland.Core
                     if (agent.IsAlive) count++;
                 }
                 return count;
+                return count;
             }
         }
+        
+        public Dictionary<int, AgentVisual> AllAgentVisuals => _agentVisuals;
         #endregion
 
         #region Unity Lifecycle
