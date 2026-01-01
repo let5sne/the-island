@@ -437,8 +437,17 @@ namespace TheIsland.Visual
             var trunkRenderer = trunkSprite.AddComponent<SpriteRenderer>();
             trunkRenderer.sprite = CreateTreeSprite();
             trunkRenderer.sortingOrder = -20;
-            // Phase 19-B: Uniform scale to avoid distortion
-            trunkSprite.transform.localScale = new Vector3(scale, scale, 1);
+            
+            // Phase 19-C: Add Billboard for 2.5D perspective
+            trunkSprite.AddComponent<Billboard>();
+            
+            // Phase 19-C: Normalize scale based on world units. 
+            // If the sprite is large, we want it to fit the intended 'scale' height.
+            // A typical tree sprite at 100 PPU might be 10 units high. 
+            // We want it to be 'scale' units high (e.g. 3 units).
+            float spriteHeightUnits = trunkRenderer.sprite.rect.height / trunkRenderer.sprite.pixelsPerUnit;
+            float normScale = scale / spriteHeightUnits;
+            trunkSprite.transform.localScale = new Vector3(normScale, normScale, 1);
         }
 
         private Texture2D _envTexture;
@@ -449,33 +458,39 @@ namespace TheIsland.Visual
             if (System.IO.File.Exists(path))
             {
                 byte[] data = System.IO.File.ReadAllBytes(path);
-                _envTexture = new Texture2D(2, 2);
-                _envTexture.LoadImage(data);
+                Texture2D sourceTex = new Texture2D(2, 2);
+                sourceTex.LoadImage(data);
                 
-                // Phase 19-B: Fix white background transparency
-                ProcessTransparency(_envTexture);
+                // Phase 19-C: Robust transparency transcoding
+                _envTexture = ProcessTransparency(sourceTex);
             }
         }
 
-        private void ProcessTransparency(Texture2D tex)
+        private Texture2D ProcessTransparency(Texture2D source)
         {
-            if (tex == null) return;
-            Color[] pixels = tex.GetPixels();
-            bool changed = false;
+            if (source == null) return null;
+            
+            // Create a new texture with Alpha channel
+            Texture2D tex = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+            Color[] pixels = source.GetPixels();
+            
             for (int i = 0; i < pixels.Length; i++)
             {
-                // If the pixel is very close to white, make it transparent
-                if (pixels[i].r > 0.92f && pixels[i].g > 0.92f && pixels[i].b > 0.92f)
+                Color p = pixels[i];
+                // Chroma-key: If pixel is very close to white, make it transparent
+                if (p.r > 0.9f && p.g > 0.9f && p.b > 0.9f)
                 {
-                    pixels[i] = Color.clear;
-                    changed = true;
+                    pixels[i] = new Color(0, 0, 0, 0);
+                }
+                else
+                {
+                    pixels[i] = new Color(p.r, p.g, p.b, 1.0f);
                 }
             }
-            if (changed)
-            {
-                tex.SetPixels(pixels);
-                tex.Apply();
-            }
+            
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return tex;
         }
 
         private Sprite CreateTreeSprite()
@@ -606,7 +621,14 @@ namespace TheIsland.Visual
             var rockRenderer = rockObj.AddComponent<SpriteRenderer>();
             rockRenderer.sprite = CreateRockSprite();
             rockRenderer.sortingOrder = -15;
-            rockObj.transform.localScale = Vector3.one * scale;
+            
+            // Phase 19-C: Add Billboard
+            rockObj.AddComponent<Billboard>();
+            
+            // Phase 19-C: Normalize scale
+            float spriteWidthUnits = rockRenderer.sprite.rect.width / rockRenderer.sprite.pixelsPerUnit;
+            float normScale = scale / spriteWidthUnits;
+            rockObj.transform.localScale = Vector3.one * normScale;
         }
 
         private Sprite CreateRockSprite()

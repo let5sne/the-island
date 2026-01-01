@@ -115,43 +115,75 @@ namespace TheIsland.Visual
         {
             if (!IsAlive) return;
 
+            // Phase 19-D: Apply soft-repulsion to prevent crowding
+            Vector3 repulsion = CalculateRepulsion();
+            
             // Handle Movement
             if (_isMoving)
             {
-                transform.position = Vector3.MoveTowards(transform.position, _targetPosition, _moveSpeed * Time.deltaTime);
+                // Simple steering toward target
+                Vector3 moveDir = (_targetPosition - transform.position).normalized;
+                Vector3 finalVelocity = (moveDir * _moveSpeed) + repulsion;
+                
+                transform.position += finalVelocity * Time.deltaTime;
 
                 // Flip sprite based on direction
-                if (_spriteRenderer != null)
+                if (_spriteRenderer != null && Mathf.Abs(moveDir.x) > 0.01f)
                 {
-                    float dx = _targetPosition.x - transform.position.x;
-                    if (Mathf.Abs(dx) > 0.1f)
-                    {
-                        // FlipX = true means face Left (assuming sprite faces Right by default)
-                        // If sprite faces Front, we might need a different approach, but FlipX is standard for 2D.
-                        _spriteRenderer.flipX = dx < 0;
-                    }
+                    _spriteRenderer.flipX = moveDir.x < 0;
                 }
 
-                if (Vector3.Distance(transform.position, _targetPosition) < 0.05f)
+                if (Vector3.Distance(transform.position, _targetPosition) < 0.1f)
                 {
                     _isMoving = false;
                 }
             }
-
-            if (_isMoving)
+            else if (repulsion.sqrMagnitude > 0.001f)
             {
-                MoveTowardsTarget();
+                // Push away even when idle
+                transform.position += repulsion * Time.deltaTime;
             }
 
-            // Phase 19-B: Use AgentAnimator for procedural movement/idle
+            // Phase 19-D: Dynamic Z-Sorting
+            if (_spriteRenderer != null)
+            {
+                // In world space, higher Z (further) should have lower sorting order
+                // Z typically ranges from -10 to 10 on the island
+                _spriteRenderer.sortingOrder = Mathf.RoundToInt(-transform.position.z * 100);
+            }
+
+            // Phase 19-B/D: Use AgentAnimator
             if (_animator != null)
             {
-                float velocity = _isMoving ? _moveSpeed : 0;
-                _animator.SetMovement(velocity, _moveSpeed);
+                float currentSpeed = _isMoving ? _moveSpeed : 0;
+                _animator.SetMovement(currentSpeed, _moveSpeed);
             }
 
             // Phase 19: Smooth UI Bar Transitions
             UpdateSmoothBars();
+        }
+
+        private Vector3 CalculateRepulsion()
+        {
+            Vector3 force = Vector3.zero;
+            float radius = 1.2f; // Social distancing radius
+            float strength = 1.5f;
+
+            var allAgents = FindObjectsByType<AgentVisual>(FindObjectsSortMode.None);
+            foreach (var other in allAgents)
+            {
+                if (other == this || !other.IsAlive) continue;
+
+                Vector3 diff = transform.position - other.transform.position;
+                float dist = diff.magnitude;
+
+                if (dist < radius && dist > 0.01f)
+                {
+                    // Linear falloff repulsion
+                    force += diff.normalized * (1.0f - (dist / radius)) * strength;
+                }
+            }
+            return force;
         }
 
         private void UpdateSmoothBars()
@@ -288,11 +320,11 @@ namespace TheIsland.Visual
             if (!System.IO.File.Exists(path)) yield break;
 
             byte[] fileData = System.IO.File.ReadAllBytes(path);
-            Texture2D tex = new Texture2D(2, 2);
-            tex.LoadImage(fileData);
+            Texture2D sourceTex = new Texture2D(2, 2);
+            sourceTex.LoadImage(fileData);
             
-            // Phase 19-B: Fix white background transparency
-            ProcessTransparency(tex);
+            // Phase 19-C: Fix black/white background with robust transcoding
+            Texture2D tex = ProcessTransparency(sourceTex);
 
             // Slice the 1x3 collection (3 characters in a row)
             int charIndex = id % 3;
@@ -304,23 +336,44 @@ namespace TheIsland.Visual
             {
                 _spriteRenderer.sprite = characterSprite;
                 _spriteRenderer.color = Color.white;
+                
+                // Phase 19-C: Normalize scale. Target height approx 2.0 units.
+                float spriteHeightUnits = characterSprite.rect.height / characterSprite.pixelsPerUnit;
+                float normScale = 2.0f / spriteHeightUnits; // Desired height is 2.0 units
+                _spriteRenderer.transform.localScale = new Vector3(normScale, normScale, 1);
+                
+                // Update original scale for animator
+                _originalSpriteScale = _spriteRenderer.transform.localScale;
             }
         }
 
-        private void ProcessTransparency(Texture2D tex)
+        private Texture2D ProcessTransparency(Texture2D source)
         {
-            if (tex == null) return;
-            Color[] pixels = tex.GetPixels();
+            if (source == null) return null;
+
+            // Create a new texture with Alpha channel
+            Texture2D tex = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+            Color[] pixels = source.GetPixels();
+            
             for (int i = 0; i < pixels.Length; i++)
             {
-                // If the pixel is very close to white, make it transparent
-                if (pixels[i].r > 0.95f && pixels[i].g > 0.95f && pixels[i].b > 0.95f)
+                Color p = pixels[i];
+                // Chroma-key: If pixel is very close to white, make it transparent
+                // Using 0.9f as threshold to catch almost-white artifacts
+                if (p.r > 0.9f && p.g > 0.9f && p.b > 0.9f)
                 {
-                    pixels[i] = Color.clear;
+                    pixels[i] = new Color(0, 0, 0, 0);
+                }
+                else
+                {
+                    // Ensure full opacity for others
+                    pixels[i] = new Color(p.r, p.g, p.b, 1.0f);
                 }
             }
+            
             tex.SetPixels(pixels);
             tex.Apply();
+            return tex;
         }
 
         private void ApplyAgentColor(int agentId)
