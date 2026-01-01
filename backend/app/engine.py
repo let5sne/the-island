@@ -1223,7 +1223,8 @@ class GameEngine:
         """Fire-and-forget LLM call to generate agent speech."""
         try:
             class AgentSnapshot:
-                def __init__(self, name, personality, hp, energy, mood, is_sheltered=False):
+                def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
+                    self.id = id
                     self.name = name
                     self.personality = personality
                     self.hp = hp
@@ -1232,7 +1233,7 @@ class GameEngine:
                     self.is_sheltered = is_sheltered
 
             agent_snapshot = AgentSnapshot(
-                agent_name, agent_personality, agent_hp, agent_energy, agent_mood
+                agent_id, agent_name, agent_personality, agent_hp, agent_energy, agent_mood
             )
 
             text = await llm_service.generate_reaction(agent_snapshot, event_description, event_type)
@@ -1266,7 +1267,8 @@ class GameEngine:
 
         try:
             class AgentSnapshot:
-                def __init__(self, name, personality, hp, energy, mood, is_sheltered=False):
+                def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
+                    self.id = id
                     self.name = name
                     self.personality = personality
                     self.hp = hp
@@ -1275,7 +1277,7 @@ class GameEngine:
                     self.is_sheltered = is_sheltered
 
             agent_snapshot = AgentSnapshot(
-                agent_data["name"], agent_data["personality"],
+                agent_data["id"], agent_data["name"], agent_data["personality"],
                 agent_data["hp"], agent_data["energy"], agent_data["mood"],
                 agent_data.get("is_sheltered", False)
             )
