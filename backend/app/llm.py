@@ -84,6 +84,13 @@ class LLMService:
             self._extra_headers[self._api_key_header] = self._api_key
             logger.info(f"Using custom API key header: {self._api_key_header}")
 
+            # LiteLLM requires provider-specific API key env var to pass validation
+            # Set it to satisfy the check (actual auth uses extra_headers)
+            if self._model.startswith("anthropic/"):
+                os.environ.setdefault("ANTHROPIC_API_KEY", self._api_key)
+            elif self._model.startswith("openai/"):
+                os.environ.setdefault("OPENAI_API_KEY", self._api_key)
+
         if self._mock_mode:
             logger.info("LLMService running in MOCK mode (forced by LLM_MOCK_MODE)")
             return
