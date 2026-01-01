@@ -82,6 +82,7 @@ namespace TheIsland.Visual
         private Vector3 _targetPosition;
         private bool _isMoving;
         private float _moveSpeed = 3f;
+        private Vector3 _lastPosition;
 
         // UI Smoothing (Phase 19)
         private float _currentHpPercent;
@@ -109,6 +110,7 @@ namespace TheIsland.Visual
             if (_animator == null) _animator = gameObject.AddComponent<AgentAnimator>();
             
             CreateVisuals();
+            _lastPosition = transform.position;
         }
 
         private void Update()
@@ -152,15 +154,52 @@ namespace TheIsland.Visual
                 _spriteRenderer.sortingOrder = Mathf.RoundToInt(-transform.position.z * 100);
             }
 
-            // Phase 19-B/D: Use AgentAnimator
+            // Phase 19-B/D/E: Use AgentAnimator
             if (_animator != null)
             {
-                float currentSpeed = _isMoving ? _moveSpeed : 0;
-                _animator.SetMovement(currentSpeed, _moveSpeed);
+                // Calculate world velocity based on position change
+                Vector3 currentVelocity = (transform.position - _lastPosition) / (Time.deltaTime > 0 ? Time.deltaTime : 0.001f);
+                _animator.SetMovement(currentVelocity, _moveSpeed);
+                _lastPosition = transform.position;
+            }
+
+            // Phase 19-E: Social Orientation (Interaction Facing)
+            if (!_isMoving)
+            {
+                FaceInteractionTarget();
             }
 
             // Phase 19: Smooth UI Bar Transitions
             UpdateSmoothBars();
+        }
+
+        private void FaceInteractionTarget()
+        {
+            // If the agent is talking or near others, turn to face them
+            float socialRange = 2.5f;
+            AgentVisual nearestAgent = null;
+            float minDist = socialRange;
+
+            var allAgents = FindObjectsByType<AgentVisual>(FindObjectsSortMode.None);
+            foreach (var other in allAgents)
+            {
+                if (other == this || !other.IsAlive) continue;
+                float d = Vector3.Distance(transform.position, other.transform.position);
+                if (d < minDist)
+                {
+                    minDist = d;
+                    nearestAgent = other;
+                }
+            }
+
+            if (nearestAgent != null && _spriteRenderer != null)
+            {
+                float dx = nearestAgent.transform.position.x - transform.position.x;
+                if (Mathf.Abs(dx) > 0.1f)
+                {
+                    _spriteRenderer.flipX = dx < 0;
+                }
+            }
         }
 
         private Vector3 CalculateRepulsion()
