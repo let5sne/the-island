@@ -29,6 +29,12 @@ ENV/
 .env.local
 .env.*.local
 
+# Coverage
+.coverage
+.pytest_cache/
+coverage.xml
+htmlcov/
+
 # Logs
 *.log
 
