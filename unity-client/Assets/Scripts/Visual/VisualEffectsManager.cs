@@ -222,54 +222,7 @@ namespace TheIsland.Visual
             return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
         }
 
-        public void SpawnFootstepDust(Vector3 position)
-        {
-            var dust = new GameObject("FootstepDust");
-            dust.transform.position = position;
-            var sprite = dust.AddComponent<SpriteRenderer>();
-            sprite.sprite = CreateDustSprite();
-            sprite.color = new Color(0.9f, 0.8f, 0.6f, 0.4f);
-            sprite.sortingOrder = 5; // Behind agents usually or just low
-            dust.AddComponent<Billboard>();
-            StartCoroutine(AnimateDust(dust));
-        }
-
-        private Sprite CreateDustSprite()
-        {
-            int size = 16;
-            Texture2D tex = new Texture2D(size, size);
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    float d = Vector2.Distance(new Vector2(x, y), new Vector2(size / 2f, size / 2f)) / (size / 2f);
-                    float alpha = Mathf.Max(0, 1.0f - d);
-                    tex.SetPixel(x, y, new Color(1, 1, 1, alpha * alpha));
-                }
-            }
-            tex.Apply();
-            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
-        }
-
-        private IEnumerator AnimateDust(GameObject dust)
-        {
-            float elapsed = 0;
-            float duration = 0.8f;
-            Vector3 startScale = Vector3.one * 0.2f;
-            Vector3 endScale = Vector3.one * 1.5f;
-            var sprite = dust.GetComponent<SpriteRenderer>();
-            
-            while (elapsed < duration)
-            {
-                elapsed += Time.deltaTime;
-                float t = elapsed / duration;
-                dust.transform.localScale = Vector3.Lerp(startScale, endScale, t);
-                sprite.color = new Color(0.9f, 0.8f, 0.6f, 0.4f * (1f - t));
-                dust.transform.position += Vector3.up * Time.deltaTime * 0.5f;
-                yield return null;
-            }
-            Destroy(dust);
-        }
+        // SpawnFootstepDust removed - consolidated to VFXManager.SpawnFootstepDust
 
         private IEnumerator AnimateFirefly(GameObject firefly)
         {

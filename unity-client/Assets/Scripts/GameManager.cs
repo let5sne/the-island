@@ -4,8 +4,6 @@ using UnityEngine.UI;
 using TMPro;
 using TheIsland.Models;
 using TheIsland.Network;
-using TheIsland.Agents;
-using TheIsland.UI;
 using TheIsland.Visual;
 
 namespace TheIsland.Core
@@ -47,8 +45,6 @@ namespace TheIsland.Core
         #endregion
 
         #region Private Fields
-        private Dictionary<int, AgentController> _agents = new Dictionary<int, AgentController>();
-        private Dictionary<int, AgentUI> _agentUIs = new Dictionary<int, AgentUI>();
         private Dictionary<int, AgentVisual> _agentVisuals = new Dictionary<int, AgentVisual>();
         private int _playerGold = 100;
         private int _currentTick;
@@ -70,26 +66,10 @@ namespace TheIsland.Core
             get
             {
                 int count = 0;
-                // Check AgentVisual first (newest system)
                 foreach (var visual in _agentVisuals.Values)
                 {
                     if (visual.IsAlive) count++;
                 }
-                if (count > 0) return count;
-
-                // Fallback to AgentUI
-                foreach (var agentUI in _agentUIs.Values)
-                {
-                    if (agentUI.IsAlive) count++;
-                }
-                if (count > 0) return count;
-
-                // Fallback to AgentController (legacy)
-                foreach (var agent in _agents.Values)
-                {
-                    if (agent.IsAlive) count++;
-                }
-                return count;
                 return count;
             }
         }
@@ -308,16 +288,8 @@ namespace TheIsland.Core
                 {
                     agentVisual.UpdateStats(data);
                 }
-                // Check for AgentUI (programmatic UI system)
-                else if (_agentUIs.TryGetValue(data.id, out AgentUI agentUI))
-                {
-                    agentUI.UpdateStats(data);
-                }
-                // Fallback to AgentController (legacy)
-                else if (_agents.TryGetValue(data.id, out AgentController controller))
-                {
-                    controller.UpdateStats(data);
-                }
+                
+                
                 else
                 {
                     // Spawn new agent
@@ -335,16 +307,6 @@ namespace TheIsland.Core
             {
                 agentVisual.ShowSpeech(data.text);
                 agentVisual.DoJump(); // Add jump effect
-            }
-            // Check AgentUI (programmatic UI system)
-            else if (_agentUIs.TryGetValue(data.agent_id, out AgentUI agentUI))
-            {
-                agentUI.ShowSpeech(data.text);
-            }
-            // Fallback to AgentController (legacy)
-            else if (_agents.TryGetValue(data.agent_id, out AgentController controller))
-            {
-                controller.ShowSpeech(data.text);
             }
             else
             {
@@ -519,10 +481,6 @@ namespace TheIsland.Core
                 {
                     targetPos = visual.transform.position;
                 }
-                else if (_agentUIs.TryGetValue(data.target_id, out AgentUI ui))
-                {
-                    targetPos = ui.transform.position;
-                }
             }
 
             if (VFXManager.Instance != null)
@@ -539,10 +497,6 @@ namespace TheIsland.Core
             if (_agentVisuals.TryGetValue(GetAgentIdByName(data.agent_name), out AgentVisual agentVisual))
             {
                 agentVisual.ShowSpeech(data.response);
-            }
-            else if (_agentUIs.TryGetValue(GetAgentIdByName(data.agent_name), out AgentUI agentUI))
-            {
-                agentUI.ShowSpeech(data.response);
             }
         }
 
@@ -569,10 +523,6 @@ namespace TheIsland.Core
             {
                 initiatorVisual.ShowSpeech(data.dialogue);
             }
-            else if (_agentUIs.TryGetValue(data.initiator_id, out AgentUI initiatorUI))
-            {
-                initiatorUI.ShowSpeech(data.dialogue);
-            }
         }
 
         /// <summary>
@@ -598,14 +548,6 @@ namespace TheIsland.Core
                     agentVisual.ShowSpeech(data.gratitude, duration);
                 }
             }
-            else if (agentId >= 0 && _agentUIs.TryGetValue(agentId, out AgentUI agentUI))
-            {
-                effectPosition = agentUI.transform.position;
-
-                if (!string.IsNullOrEmpty(data.gratitude))
-                {
-                    agentUI.ShowSpeech(data.gratitude);
-                }
             }
             else
             {
@@ -656,13 +598,6 @@ namespace TheIsland.Core
                     agentVisual.ShowSpeech(data.dialogue, 3f);
                 }
             }
-            else if (_agentUIs.TryGetValue(data.agent_id, out AgentUI agentUI))
-            {
-                // Fallback for UI-only agents (just show speech)
-                 if (!string.IsNullOrEmpty(data.dialogue))
-                {
-                    agentUI.ShowSpeech(data.dialogue);
-                }
             }
         }
 
@@ -746,35 +681,14 @@ namespace TheIsland.Core
                 agentContainer
             );
 
-            // Try to get AgentVisual first (newest system - 2.5D sprites)
             AgentVisual agentVisual = agentObj.GetComponent<AgentVisual>();
-            if (agentVisual != null)
+            if (agentVisual == null)
             {
-                agentVisual.Initialize(data);
-                _agentVisuals[data.id] = agentVisual;
-                Debug.Log($"[GameManager] Spawned agent (AgentVisual): {data.name} at {spawnPos}");
-                return;
+                agentVisual = agentObj.AddComponent<AgentVisual>();
             }
-
-            // Try to get AgentUI (programmatic UI system)
-            AgentUI agentUI = agentObj.GetComponent<AgentUI>();
-            if (agentUI == null)
-            {
-                // Add AgentUI component - it will create all UI elements automatically
-                agentUI = agentObj.AddComponent<AgentUI>();
-            }
-            agentUI.Initialize(data);
-            _agentUIs[data.id] = agentUI;
-
-            // Also check for legacy AgentController
-            AgentController controller = agentObj.GetComponent<AgentController>();
-            if (controller != null)
-            {
-                controller.Initialize(data);
-                _agents[data.id] = controller;
-            }
-
-            Debug.Log($"[GameManager] Spawned agent: {data.name} at {spawnPos}");
+            agentVisual.Initialize(data);
+            _agentVisuals[data.id] = agentVisual;
+            Debug.Log($"[GameManager] Spawned agent (AgentVisual): {data.name} at {spawnPos}");
         }
 
         private Vector3 GetNextSpawnPosition()
@@ -790,54 +704,12 @@ namespace TheIsland.Core
         }
 
         /// <summary>
-        /// Get an agent controller by ID.
-        /// </summary>
-        public AgentController GetAgent(int agentId)
-        {
-            _agents.TryGetValue(agentId, out AgentController controller);
-            return controller;
-        }
-
-        /// <summary>
-        /// Get an agent controller by name.
-        /// </summary>
-        public AgentController GetAgentByName(string name)
-        {
-            foreach (var agent in _agents.Values)
-            {
-                if (agent.CurrentData?.name == name)
-                {
-                    return agent;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
         /// Get agent ID by name (searches all agent systems).
         /// </summary>
         private int GetAgentIdByName(string name)
         {
             // Check AgentVisual first (newest system)
             foreach (var kvp in _agentVisuals)
-            {
-                if (kvp.Value.CurrentData?.name == name)
-                {
-                    return kvp.Key;
-                }
-            }
-
-            // Check AgentUI
-            foreach (var kvp in _agentUIs)
-            {
-                if (kvp.Value.CurrentData?.name == name)
-                {
-                    return kvp.Key;
-                }
-            }
-
-            // Check AgentController (legacy)
-            foreach (var kvp in _agents)
             {
                 if (kvp.Value.CurrentData?.name == name)
                 {

@@ -360,10 +360,7 @@ namespace TheIsland.Visual
                 if (_footstepTimer > 0.35f) // Approximate footstep interval
                 {
                     _footstepTimer = 0;
-                    if (TheIsland.Visual.VisualEffectsManager.Instance != null)
-                    {
-                        TheIsland.Visual.VisualEffectsManager.Instance.SpawnFootstepDust(transform.position);
-                    }
+                    VFXManager.Instance.SpawnFootstepDust(transform.position);
                 }
             }
         }
