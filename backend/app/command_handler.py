@@ -12,7 +12,7 @@ from .config import (
     REVIVE_COST, INITIAL_USER_GOLD, BUILD_COST, BUILDING_TYPES,
     FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
     TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
-    BUILD_PATTERN, TRADE_PATTERN,
+    BUILD_PATTERN, TRADE_PATTERN, WHISPER_PATTERN,
 )
 from .database import get_db_session
 from .models import User, Agent, WorldState, GameConfig, Building
@@ -63,6 +63,15 @@ class CommandHandler:
             await self._build(user, match.group(1))
         elif match := TRADE_PATTERN.search(message):
             await self._trade(user, match.group(1), match.group(2), int(match.group(3)))
+        elif match := WHISPER_PATTERN.search(message):
+            await self._whisper(user, match.group(1), match.group(2))
+        else:
+            # Any non-command message becomes a "rumor" (风声) that sways AI opinions
+            from app import simulation
+            await simulation._process_rumor(
+                type('Eng', (), {'_broadcast_event': self._broadcast})(),
+                message, user
+            )
 
     async def _feed(self, username: str, agent_name: str) -> None:
         """Feed an agent: cost gold, restore energy."""

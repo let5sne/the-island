@@ -2259,3 +2259,38 @@ async def _process_trade(eng, from_agent: Agent, to_agent: Agent, item: str, qua
     })
     return True
 
+
+async def _process_rumor(eng, message: str, username: str) -> dict | None:
+    """Process a chat message as a 'rumor' that influences AI opinions."""
+    with get_db_session() as db:
+        agents = db.query(Agent).filter(Agent.status == "Alive").all()
+        mentioned = [a for a in agents if a.name.lower() in message.lower()]
+        if len(mentioned) < 1:
+            return None
+
+        negative_words = ["steal", "lie", "cheat", "bad", "evil", "kill", "hate", "betray"]
+        positive_words = ["help", "good", "kind", "share", "friend", "hero", "save", "love"]
+        is_negative = any(w in message.lower() for w in negative_words)
+        is_positive = any(w in message.lower() for w in positive_words)
+        shift = -5 if is_negative else 5 if is_positive else 2
+
+        effects = []
+        target = mentioned[0]
+        for other in agents:
+            if other.id != target.id:
+                rel = db.query(AgentRelationship).filter(
+                    AgentRelationship.agent_from_id == other.id,
+                    AgentRelationship.agent_to_id == target.id,
+                ).first()
+                if rel:
+                    rel.trust = max(-100, min(100, rel.trust + shift))
+                    effects.append(f"{other.name} trust {target.name}: {'+' if shift > 0 else ''}{shift}")
+
+        target.mood = max(0, min(100, target.mood + (3 if is_positive else -3)))
+
+        await eng._broadcast_event("rumor_effect", {
+            "username": username, "message": message,
+            "target": target.name, "shift": shift, "effects": effects,
+        })
+        return {"target": target.name, "shift": shift}
+

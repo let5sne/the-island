@@ -77,6 +77,50 @@ MOCK_REACTIONS = {
         "Appreciate it, {user}! You're awesome!",
         "{user}, you're a legend! Thank you!",
     ],
+    # Personality-specific idle barks
+    "hotheaded_idle": [
+        "Someone better not cross me today...",
+        "I'm not sharing ANYTHING. Got it?",
+        "This island is MINE. Everyone else can leave.",
+    ],
+    "manipulative_idle": [
+        "Let's see... who can I use today?",
+        "A little flattery goes a long way...",
+        "Keep your friends close, and your enemies closer.",
+    ],
+    "saintly_idle": [
+        "I hope everyone is okay... maybe I can help.",
+        "Does anyone need food? I can share mine.",
+        "Kindness costs nothing. Let's work together!",
+    ],
+    "deceptive_idle": [
+        "Trust me, I know what I'm doing... *wink*",
+        "I didn't take your herbs. Why would you think that?",
+        "A little lie never hurt anyone. Much.",
+    ],
+    # Rumor reactions - AI responds to "风声"
+    "rumor_suspect": [
+        "What?! Someone said THAT about me?",
+        "That's a lie! Who's spreading rumors?",
+        "I can't believe people would say that...",
+    ],
+    "rumor_trust_shift": [
+        "Hmm, I should be more careful around {target}...",
+        "I knew {target} couldn't be trusted!",
+        "Maybe {target} isn't so bad after all.",
+    ],
+    # Pardon reactions
+    "pardon_plea": [
+        "Please! Don't send me away! I'll do anything!",
+        "Wait! I don't deserve this! Someone, help!",
+        "I'm begging you... isn't there anyone who cares?!",
+        "*sobbing* Please... I have so much more to give...",
+    ],
+    "pardon_gratitude": [
+        "Thank you, {user}! You saved my life! I'll NEVER forget this!",
+        "{user}... you're my hero. I'm yours forever.",
+        "I owe you everything, {user}. Command me as you wish!",
+    ],
 }
 
 # Default model configuration

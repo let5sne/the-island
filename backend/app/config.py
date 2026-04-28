@@ -95,9 +95,16 @@ SOCIAL_INTERACTIONS: dict[str, dict] = {
 # Initial NPC data
 # =============================================================================
 INITIAL_AGENTS: list[dict[str, str]] = [
-    {"name": "Jack", "personality": "Brave", "social_tendency": "extrovert"},
-    {"name": "Luna", "personality": "Cunning", "social_tendency": "neutral"},
-    {"name": "Bob", "personality": "Honest", "social_tendency": "introvert"},
+    {"name": "Jack",  "personality": "Honest",     "social_tendency": "extrovert"},
+    {"name": "Luna",  "personality": "Manipulative", "social_tendency": "extrovert"},
+    {"name": "Rex",   "personality": "Hot-headed",  "social_tendency": "introvert"},
+    {"name": "Maya",  "personality": "Saintly",     "social_tendency": "extrovert"},
+    {"name": "Shadow","personality": "Loner",       "social_tendency": "introvert"},
+    {"name": "Fox",   "personality": "Deceptive",   "social_tendency": "extrovert"},
+    {"name": "Alpha", "personality": "Alpha",       "social_tendency": "extrovert"},
+    {"name": "Mouse", "personality": "Cowardly",    "social_tendency": "introvert"},
+    {"name": "Dice",  "personality": "Risk-taker",  "social_tendency": "neutral"},
+    {"name": "Sage",  "personality": "Wise",        "social_tendency": "neutral"},
 ]
 
 # =============================================================================
@@ -113,6 +120,13 @@ LOVE_PATTERN = re.compile(r"love\s+(\w+)", re.IGNORECASE)
 REVIVE_PATTERN = re.compile(r"revive\s+(\w+)", re.IGNORECASE)
 BUILD_PATTERN = re.compile(r"build\s+(\w+)", re.IGNORECASE)
 TRADE_PATTERN = re.compile(r"trade\s+(\w+)\s+(\w+)\s+(\d+)", re.IGNORECASE)
+WHISPER_PATTERN = re.compile(r"whisper\s+(\w+)\s+(.+)", re.IGNORECASE)
+
+# =============================================================================
+# Rumors / Whispers
+# =============================================================================
+RUMOR_TRUST_SHIFT: int = 5  # How much trust shifts per rumor
+RUMOR_MOOD_SHIFT: int = 3   # Mood impact of hearing rumors
 
 # =============================================================================
 # Building system
