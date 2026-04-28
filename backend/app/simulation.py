@@ -13,10 +13,10 @@ from .config import (
     DIRECTOR_TRIGGER_INTERVAL, DIRECTOR_MIN_ALIVE_AGENTS,
     TICKS_PER_DAY, DAY_PHASES, PHASE_MODIFIERS,
     WEATHER_TYPES, WEATHER_TRANSITIONS, WEATHER_MIN_DURATION, WEATHER_MAX_DURATION,
-    SOCIAL_INTERACTIONS, INITIAL_AGENTS,
+    SOCIAL_INTERACTIONS, INITIAL_AGENTS, BUILDING_TYPES,
 )
 from .database import get_db_session
-from .models import Agent, WorldState, GameConfig, AgentRelationship
+from .models import Agent, WorldState, GameConfig, AgentRelationship, Building
 from .schemas import EventType
 
 logger = logging.getLogger(__name__)
@@ -2196,4 +2196,66 @@ async def _process_conversation_reply(
     except Exception as e:
 
         logger.error(f"Error in conversation reply: {e}")
+
+
+# =============================================================================
+# Building Construction Processing
+# =============================================================================
+
+async def _process_building_construction(eng) -> None:
+    """Advance construction progress for all incomplete buildings."""
+    with get_db_session() as db:
+        buildings = db.query(Building).filter(Building.is_complete == False).all()
+        if not buildings:
+            return
+
+        for b in buildings:
+            bt = BUILDING_TYPES.get(b.building_type, {})
+            ticks_needed = bt.get("construction_ticks", 10)
+            progress_per_tick = 100 // max(ticks_needed, 1)
+            b.construction_progress = min(100, b.construction_progress + progress_per_tick)
+
+            if b.construction_progress >= 100:
+                b.is_complete = True
+                await eng._broadcast_event("building_completed", {
+                    "building_id": b.id,
+                    "building_type": b.building_type,
+                    "name": b.name,
+                    "built_by": b.built_by,
+                    "message": f"The {b.name} has been completed!",
+                })
+                logger.info(f"Building completed: {b.name} by {b.built_by}")
+
+
+# =============================================================================
+# Trading System
+# =============================================================================
+
+async def _process_trade(eng, from_agent: Agent, to_agent: Agent, item: str, quantity: int) -> bool:
+    """Agent-to-agent item trading."""
+    from_inv = eng._get_inventory(from_agent)
+    to_inv = eng._get_inventory(to_agent)
+
+    if from_inv.get(item, 0) < quantity:
+        return False
+
+    from_inv[item] = from_inv[item] - quantity
+    to_inv[item] = to_inv.get(item, 0) + quantity
+
+    eng._set_inventory(from_agent, from_inv)
+    eng._set_inventory(to_agent, to_inv)
+
+    from_agent.mood = min(100, from_agent.mood + 3)  # Generosity boost
+    to_agent.mood = min(100, to_agent.mood + 5)      # Receiving boost
+
+    await eng._broadcast_event("give_item", {
+        "from_agent_id": from_agent.id,
+        "from_name": from_agent.name,
+        "to_agent_id": to_agent.id,
+        "to_name": to_agent.name,
+        "item": item,
+        "quantity": quantity,
+        "message": f"{from_agent.name} gave {quantity}x {item} to {to_agent.name}!",
+    })
+    return True
 

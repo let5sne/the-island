@@ -9,12 +9,13 @@ import logging
 from .config import (
     FEED_COST, FEED_ENERGY_RESTORE, HEAL_COST, HEAL_HP_RESTORE,
     ENCOURAGE_COST, ENCOURAGE_MOOD_BOOST, LOVE_COST, LOVE_MOOD_BOOST,
-    REVIVE_COST, INITIAL_USER_GOLD,
+    REVIVE_COST, INITIAL_USER_GOLD, BUILD_COST, BUILDING_TYPES,
     FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
     TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
+    BUILD_PATTERN, TRADE_PATTERN,
 )
 from .database import get_db_session
-from .models import User, Agent, WorldState, GameConfig
+from .models import User, Agent, WorldState, GameConfig, Building
 from .schemas import GameEvent, EventType
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,10 @@ class CommandHandler:
             await self._check(user)
         elif RESET_PATTERN.search(message):
             await self._reset(user)
+        elif match := BUILD_PATTERN.search(message):
+            await self._build(user, match.group(1))
+        elif match := TRADE_PATTERN.search(message):
+            await self._trade(user, match.group(1), match.group(2), int(match.group(3)))
 
     async def _feed(self, username: str, agent_name: str) -> None:
         """Feed an agent: cost gold, restore energy."""
@@ -362,3 +367,109 @@ class CommandHandler:
         await self._broadcast(EventType.SYSTEM, {
             "message": f"{username} reset the game!"
         })
+
+    async def _build(self, username: str, building_type: str) -> None:
+        """Build a structure on the island."""
+        building_type = building_type.lower()
+        if building_type not in BUILDING_TYPES:
+            await self._broadcast(EventType.ERROR, {
+                "user": username,
+                "message": f"Unknown building type '{building_type}'. Available: {', '.join(BUILDING_TYPES.keys())}"
+            })
+            return
+
+        bt = BUILDING_TYPES[building_type]
+        with get_db_session() as db:
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                user = User(username=username, gold=INITIAL_USER_GOLD)
+                db.add(user)
+                db.flush()
+
+            cost = bt["cost"]
+            if user.gold < cost:
+                await self._broadcast(EventType.ERROR, {
+                    "user": username,
+                    "message": f"Not enough gold! Need {cost}g, have {user.gold}g."
+                })
+                return
+
+            user.gold -= cost
+            building = Building(
+                building_type=building_type,
+                name=bt["name"],
+                description=bt["description"],
+                built_by=username,
+                is_complete=False,
+                construction_progress=0,
+            )
+            db.add(building)
+            db.flush()
+
+            await self._broadcast(EventType.SYSTEM, {
+                "message": f"{username} started building a {bt['name']}! ({cost}g). Construction will complete over time.",
+            })
+            await self._broadcast("building_started", {
+                "building_id": building.id,
+                "building_type": building_type,
+                "name": bt["name"],
+                "built_by": username,
+                "construction_ticks": bt["construction_ticks"],
+            })
+
+    async def _trade(self, username: str, target_name: str, item: str, quantity: int) -> None:
+        """Player-initiated trade between agents."""
+        import json
+
+        if quantity <= 0:
+            await self._broadcast(EventType.ERROR, {
+                "user": username, "message": "Trade quantity must be positive."
+            })
+            return
+
+        with get_db_session() as db:
+            from_agent = db.query(Agent).filter(
+                Agent.name.ilike(username), Agent.status == "Alive"
+            ).first()
+            to_agent = db.query(Agent).filter(
+                Agent.name.ilike(target_name), Agent.status == "Alive"
+            ).first()
+
+            if not from_agent:
+                await self._broadcast(EventType.ERROR, {
+                    "user": username,
+                    "message": f"No alive agent named '{username}'. Use 'check' to see agents."
+                })
+                return
+
+            if not to_agent:
+                await self._broadcast(EventType.ERROR, {
+                    "user": username, "message": f"Agent '{target_name}' not found or dead."
+                })
+                return
+
+            from_inv = json.loads(from_agent.inventory) if from_agent.inventory else {}
+            to_inv = json.loads(to_agent.inventory) if to_agent.inventory else {}
+
+            if from_inv.get(item, 0) < quantity:
+                await self._broadcast(EventType.ERROR, {
+                    "user": username,
+                    "message": f"{from_agent.name} doesn't have enough {item} (has {from_inv.get(item, 0)})."
+                })
+                return
+
+            from_inv[item] -= quantity
+            to_inv[item] = to_inv.get(item, 0) + quantity
+            from_agent.inventory = json.dumps(from_inv)
+            to_agent.inventory = json.dumps(to_inv)
+
+            from_agent.mood = min(100, from_agent.mood + 3)
+            to_agent.mood = min(100, to_agent.mood + 5)
+
+            await self._broadcast("give_item", {
+                "from_name": from_agent.name,
+                "to_name": to_agent.name,
+                "item": item,
+                "quantity": quantity,
+                "message": f"{from_agent.name} traded {quantity}x {item} to {to_agent.name}!",
+            })

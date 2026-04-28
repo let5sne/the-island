@@ -269,3 +269,34 @@ class AgentMemory(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
+
+class Building(Base):
+    """Player-built structures on the island."""
+    __tablename__ = "buildings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    building_type = Column(String(30), nullable=False)  # shelter, watchtower, farm, workshop
+    name = Column(String(50), nullable=False)
+    description = Column(String(200), default="")
+    built_by = Column(String(100), nullable=False)
+    location = Column(String(50), default="center")
+    hp = Column(Integer, default=100)
+    level = Column(Integer, default=1)
+    is_complete = Column(Boolean, default=False)
+    construction_progress = Column(Integer, default=0)  # 0-100
+    created_at = Column(DateTime, default=func.now())
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "building_type": self.building_type,
+            "name": self.name,
+            "description": self.description,
+            "built_by": self.built_by,
+            "location": self.location,
+            "hp": self.hp,
+            "level": self.level,
+            "is_complete": self.is_complete,
+            "construction_progress": self.construction_progress,
+        }
+

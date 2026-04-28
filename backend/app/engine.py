@@ -1172,7 +1172,8 @@ class GameEngine:
 
             await self._process_clique_behavior()
 
-
+            # Building construction progress
+            await simulation._process_building_construction(self)
 
             # 7. Idle chat
 

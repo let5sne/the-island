@@ -111,3 +111,44 @@ TALK_PATTERN = re.compile(r"talk\s+(\w+)\s*(.*)?", re.IGNORECASE)
 ENCOURAGE_PATTERN = re.compile(r"encourage\s+(\w+)", re.IGNORECASE)
 LOVE_PATTERN = re.compile(r"love\s+(\w+)", re.IGNORECASE)
 REVIVE_PATTERN = re.compile(r"revive\s+(\w+)", re.IGNORECASE)
+BUILD_PATTERN = re.compile(r"build\s+(\w+)", re.IGNORECASE)
+TRADE_PATTERN = re.compile(r"trade\s+(\w+)\s+(\w+)\s+(\d+)", re.IGNORECASE)
+
+# =============================================================================
+# Building system
+# =============================================================================
+BUILD_COST: int = 20
+BUILDING_TYPES: dict[str, dict] = {
+    "shelter": {
+        "name": "Shelter",
+        "description": "A sturdy shelter that protects from weather and restores HP.",
+        "cost": 20,
+        "hp": 200,
+        "effects": {"weather_protection": True, "hp_recovery_bonus": 2},
+        "construction_ticks": 10,
+    },
+    "watchtower": {
+        "name": "Watchtower",
+        "description": "A tall tower to spot ships and threats.",
+        "cost": 30,
+        "hp": 150,
+        "effects": {"vision_range": 2, "threat_warning": True},
+        "construction_ticks": 15,
+    },
+    "farm": {
+        "name": "Farm",
+        "description": "A small farm that produces food daily.",
+        "cost": 25,
+        "hp": 100,
+        "effects": {"food_per_day": 2, "mood_bonus": 5},
+        "construction_ticks": 12,
+    },
+    "workshop": {
+        "name": "Workshop",
+        "description": "A crafting workshop for making tools.",
+        "cost": 35,
+        "hp": 120,
+        "effects": {"crafting_speed": 2, "tool_quality_bonus": 1},
+        "construction_ticks": 18,
+    },
+}
