@@ -59,7 +59,6 @@ class EventType(str, Enum):
     GIVE_ITEM = "give_item"              # Agent gives item to another
 
     # Group Activities (Phase 24)
-    # Group Activities (Phase 24)
     GROUP_ACTIVITY = "group_activity"    # Storytelling, dancing, etc.
 
     # VFX & Gifts (Phase 8)

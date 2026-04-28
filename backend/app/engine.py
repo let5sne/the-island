@@ -23,110 +23,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Command patterns
-# =============================================================================
-FEED_PATTERN = re.compile(r"feed\s+(\w+)", re.IGNORECASE)
-CHECK_PATTERN = re.compile(r"(check|查询|状态)", re.IGNORECASE)
-RESET_PATTERN = re.compile(r"(reset|重新开始|重置)", re.IGNORECASE)
-HEAL_PATTERN = re.compile(r"heal\s+(\w+)", re.IGNORECASE)
-TALK_PATTERN = re.compile(r"talk\s+(\w+)\s*(.*)?", re.IGNORECASE)
-ENCOURAGE_PATTERN = re.compile(r"encourage\s+(\w+)", re.IGNORECASE)
-LOVE_PATTERN = re.compile(r"love\s+(\w+)", re.IGNORECASE)
-REVIVE_PATTERN = re.compile(r"revive\s+(\w+)", re.IGNORECASE)
 
-# =============================================================================
-# Game constants
-# =============================================================================
-TICK_INTERVAL = 5.0  # Seconds between ticks
+class _AgentSnapshot:
+    """Lightweight agent data snapshot for LLM calls, avoids DetachedInstanceError."""
+    __slots__ = ("id", "name", "personality", "hp", "energy", "mood", "is_sheltered")
 
-# Survival (base values, modified by difficulty)
-BASE_ENERGY_DECAY_PER_TICK = 2
-BASE_HP_DECAY_WHEN_STARVING = 5
+    def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
+        self.id = id
+        self.name = name
+        self.personality = personality
+        self.hp = hp
+        self.energy = energy
+        self.mood = mood
+        self.is_sheltered = is_sheltered
 
-# Command costs and effects
-FEED_COST = 10
-FEED_ENERGY_RESTORE = 20
-HEAL_COST = 15
-HEAL_HP_RESTORE = 30
-ENCOURAGE_COST = 5
-ENCOURAGE_COST = 5
-ENCOURAGE_MOOD_BOOST = 15
-LOVE_COST = 5
-LOVE_MOOD_BOOST = 20
-REVIVE_COST = 10  # Casual mode cost
-
-INITIAL_USER_GOLD = 100
-IDLE_CHAT_PROBABILITY = 0.15
-
-# =============================================================================
-# AI Director & Narrative Voting (Phase 9)
-# =============================================================================
-DIRECTOR_TRIGGER_INTERVAL = 60  # Ticks between narrative events (5 minutes at 5s/tick)
-DIRECTOR_MIN_ALIVE_AGENTS = 2   # Minimum alive agents to trigger narrative
-VOTING_DURATION_SECONDS = 60    # Duration of voting window
-VOTE_BROADCAST_INTERVAL = 1.0   # How often to broadcast vote updates
-
-# =============================================================================
-# Day/Night cycle
-# =============================================================================
-TICKS_PER_DAY = 120  # 10 minutes per day at 5s/tick
-
-DAY_PHASES = {
-    "dawn": (0, 15),      # Ticks 0-15
-    "day": (16, 75),      # Ticks 16-75
-    "dusk": (76, 90),     # Ticks 76-90
-    "night": (91, 119)    # Ticks 91-119
-}
-
-PHASE_MODIFIERS = {
-    "dawn": {"energy_decay": 0.8, "hp_recovery": 1, "mood_change": 3},
-    "day": {"energy_decay": 1.0, "hp_recovery": 2, "mood_change": 2},
-    "dusk": {"energy_decay": 1.2, "hp_recovery": 0, "mood_change": -2},
-    "night": {"energy_decay": 1.3, "hp_recovery": 0, "mood_change": -3}
-}
-
-# =============================================================================
-# Weather system
-# =============================================================================
-WEATHER_TYPES = {
-    "Sunny": {"energy_modifier": 1.0, "mood_change": 5},
-    "Cloudy": {"energy_modifier": 1.0, "mood_change": 0},
-    "Rainy": {"energy_modifier": 1.2, "mood_change": -8},
-    "Stormy": {"energy_modifier": 1.4, "mood_change": -15},
-    "Hot": {"energy_modifier": 1.3, "mood_change": -5},
-    "Foggy": {"energy_modifier": 1.1, "mood_change": -3}
-}
-
-WEATHER_TRANSITIONS = {
-    "Sunny": {"Sunny": 0.5, "Cloudy": 0.3, "Hot": 0.15, "Rainy": 0.05},
-    "Cloudy": {"Cloudy": 0.3, "Sunny": 0.3, "Rainy": 0.25, "Foggy": 0.1, "Stormy": 0.05},
-    "Rainy": {"Rainy": 0.3, "Cloudy": 0.35, "Stormy": 0.2, "Foggy": 0.15},
-    "Stormy": {"Stormy": 0.2, "Rainy": 0.5, "Cloudy": 0.3},
-    "Hot": {"Hot": 0.3, "Sunny": 0.5, "Cloudy": 0.15, "Stormy": 0.05},
-    "Foggy": {"Foggy": 0.2, "Cloudy": 0.4, "Rainy": 0.25, "Sunny": 0.15}
-}
-
-WEATHER_MIN_DURATION = 15
-WEATHER_MAX_DURATION = 35
-
-# =============================================================================
-# Social interactions
-# =============================================================================
-SOCIAL_INTERACTIONS = {
-    "chat": {"affection": (1, 4), "trust": (0, 2), "weight": 0.4},
-    "share_food": {"affection": (3, 7), "trust": (2, 4), "weight": 0.15, "min_energy": 40},
-    "help": {"affection": (4, 8), "trust": (3, 6), "weight": 0.15, "min_energy": 30},
-    "comfort": {"affection": (3, 6), "trust": (2, 4), "weight": 0.2, "target_max_mood": 40},
-    "argue": {"affection": (-8, -3), "trust": (-5, -2), "weight": 0.1, "max_mood": 35}
-}
-
-# Initial NPC data
-INITIAL_AGENTS = [
-    {"name": "Jack", "personality": "Brave", "social_tendency": "extrovert"},
-    {"name": "Luna", "personality": "Cunning", "social_tendency": "neutral"},
-    {"name": "Bob", "personality": "Honest", "social_tendency": "introvert"},
-]
+from .config import (
+    TICK_INTERVAL, BASE_ENERGY_DECAY_PER_TICK, BASE_HP_DECAY_WHEN_STARVING,
+    FEED_COST, FEED_ENERGY_RESTORE, HEAL_COST, HEAL_HP_RESTORE,
+    ENCOURAGE_COST, ENCOURAGE_MOOD_BOOST, LOVE_COST, LOVE_MOOD_BOOST,
+    REVIVE_COST, INITIAL_USER_GOLD, IDLE_CHAT_PROBABILITY,
+    DIRECTOR_TRIGGER_INTERVAL, DIRECTOR_MIN_ALIVE_AGENTS,
+    VOTING_DURATION_SECONDS, VOTE_BROADCAST_INTERVAL,
+    TICKS_PER_DAY, DAY_PHASES, PHASE_MODIFIERS,
+    WEATHER_TYPES, WEATHER_TRANSITIONS, WEATHER_MIN_DURATION, WEATHER_MAX_DURATION,
+    SOCIAL_INTERACTIONS, INITIAL_AGENTS,
+    FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
+    TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
+)
 
 
 class GameEngine:
@@ -139,7 +62,6 @@ class GameEngine:
         self._manager = connection_manager
         self._running = False
         self._tick_count = 0
-        self._tick_interval = TICK_INTERVAL
         self._tick_interval = TICK_INTERVAL
         self._config: Optional[GameConfig] = None
         # Phase 22: Contextual Dialogue System
@@ -493,35 +415,6 @@ class GameEngine:
     # =========================================================================
     # Day/Night cycle (Phase 2)
     # =========================================================================
-    async def _process_weather(self) -> None:
-        """Process weather transitions."""
-        with get_db_session() as db:
-            world = db.query(WorldState).first()
-            if not world:
-                return
-
-            world.weather_duration += 1
-            
-            # Should we transition?
-            if world.weather_duration >= random.randint(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION):
-                old_weather = world.weather
-                transitions = WEATHER_TRANSITIONS.get(old_weather, {"Sunny": 1.0})
-                
-                # Biased random choice
-                choices = list(transitions.keys())
-                weights = list(transitions.values())
-                new_weather = random.choices(choices, weights=weights, k=1)[0]
-                
-                if new_weather != old_weather:
-                    world.weather = new_weather
-                    world.weather_duration = 0
-                    
-                    await self._broadcast_event(EventType.WEATHER_CHANGE, {
-                        "old_weather": old_weather,
-                        "new_weather": new_weather,
-                        "message": f"The weather is changing to {new_weather}."
-                    })
-
     async def _advance_time(self) -> Optional[dict]:
         """Advance time and return phase change info if applicable."""
         with get_db_session() as db:
@@ -1052,7 +945,6 @@ class GameEngine:
                 new_action = agent.current_action
                 new_location = agent.location
                 target_name = None
-                target_name = None
                 should_update = False
 
                 # Phase 22: Handle Pending Conversations (High Priority)
@@ -1251,8 +1143,6 @@ class GameEngine:
             return f"Looking for {target}..." if target else "Need a friend."
         elif action == "Wander":
             return random.choice(["Hmm...", "Nice weather.", "Taking a walk."])
-        elif action == "Wake Up":
-            return "Good morning!"
         elif action == "Wake Up":
             return "Good morning!"
         elif action == "Dance":
@@ -1462,17 +1352,7 @@ class GameEngine:
     ) -> None:
         """Fire-and-forget LLM call to generate agent speech."""
         try:
-            class AgentSnapshot:
-                def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
-                    self.id = id
-                    self.name = name
-                    self.personality = personality
-                    self.hp = hp
-                    self.energy = energy
-                    self.mood = mood
-                    self.is_sheltered = is_sheltered
-
-            agent_snapshot = AgentSnapshot(
+            agent_snapshot = _AgentSnapshot(
                 agent_id, agent_name, agent_personality, agent_hp, agent_energy, agent_mood
             )
 
@@ -1506,17 +1386,7 @@ class GameEngine:
             }
 
         try:
-            class AgentSnapshot:
-                def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
-                    self.id = id
-                    self.name = name
-                    self.personality = personality
-                    self.hp = hp
-                    self.energy = energy
-                    self.mood = mood
-                    self.is_sheltered = is_sheltered
-
-            agent_snapshot = AgentSnapshot(
+            agent_snapshot = _AgentSnapshot(
                 agent_data["id"], agent_data["name"], agent_data["personality"],
                 agent_data["hp"], agent_data["energy"], agent_data["mood"],
                 agent_data.get("is_sheltered", False)
