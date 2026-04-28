@@ -2262,6 +2262,13 @@ async def _process_trade(eng, from_agent: Agent, to_agent: Agent, item: str, qua
 
 async def _process_rumor(eng, message: str, username: str) -> dict | None:
     """Process a chat message as a 'rumor' that influences AI opinions."""
+    try:
+        return await _process_rumor_impl(eng, message, username)
+    except Exception:
+        return None
+
+
+async def _process_rumor_impl(eng, message: str, username: str) -> dict | None:
     with get_db_session() as db:
         agents = db.query(Agent).filter(Agent.status == "Alive").all()
         mentioned = [a for a in agents if a.name.lower() in message.lower()]
@@ -2293,4 +2300,204 @@ async def _process_rumor(eng, message: str, username: str) -> dict | None:
             "target": target.name, "shift": shift, "effects": effects,
         })
         return {"target": target.name, "shift": shift}
+
+
+# =============================================================================
+# Daily Exile Vote
+# =============================================================================
+
+EXILE_VOTE_ACTIVE = False
+EXILE_VOTES: dict[int, int] = {}  # voter_agent_id -> target_agent_id
+EXILE_VOTE_TICK_STARTED = 0
+EXILE_CONDEMNED: str | None = None
+EXILE_PARDON_WINDOW = 30  # ticks to wait for pardon
+
+
+async def _check_and_start_exile_vote(eng) -> bool:
+    """Start daily exile vote at dusk if conditions met."""
+    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_VOTE_TICK_STARTED, EXILE_CONDEMNED
+
+    with get_db_session() as db:
+        world = db.query(WorldState).first()
+        if not world or world.time_of_day != "dusk":
+            return False
+
+        alive = db.query(Agent).filter(Agent.status == "Alive").all()
+        if len(alive) < 3:
+            return False
+
+    EXILE_VOTE_ACTIVE = True
+    EXILE_VOTES = {}
+    EXILE_VOTE_TICK_STARTED = eng._tick_count
+    EXILE_CONDEMNED = None
+
+    await eng._broadcast_event(EventType.EXILE_VOTE_START, {
+        "message": "Dusk falls. The agents gather around the campfire to decide who shall be exiled...",
+        "alive_count": len(alive),
+    })
+    return True
+
+
+async def _process_exile_vote(eng) -> dict | None:
+    """Each tick, one agent casts their exile vote."""
+    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_CONDEMNED
+
+    if not EXILE_VOTE_ACTIVE:
+        return None
+
+    with get_db_session() as db:
+        alive = db.query(Agent).filter(Agent.status == "Alive").all()
+        if len(alive) < 3:
+            EXILE_VOTE_ACTIVE = False
+            return None
+
+        # Find an agent who hasn't voted yet
+        for agent in alive:
+            if agent.id not in EXILE_VOTES:
+                # Vote for whoever has lowest relationship or lowest contribution
+                candidates = [a for a in alive if a.id != agent.id]
+                if not candidates:
+                    continue
+
+                # Pick target based on relationships (negative affection = more likely target)
+                target = random.choice(candidates)
+                for c in candidates:
+                    rel = db.query(AgentRelationship).filter(
+                        AgentRelationship.agent_from_id == agent.id,
+                        AgentRelationship.agent_to_id == c.id,
+                    ).first()
+                    if rel and rel.affection < -10:
+                        target = c
+                        break  # Vote against someone they dislike
+
+                EXILE_VOTES[agent.id] = target.id
+                await eng._broadcast_event(EventType.EXILE_VOTE_CAST, {
+                    "voter": agent.name,
+                    "target": target.name,
+                    "reason": f"{agent.name} votes to exile {target.name}.",
+                })
+                break  # Process one vote per tick
+
+        # Check if all have voted
+        if len(EXILE_VOTES) >= len(alive):
+            return await _finalize_exile_vote(eng)
+
+    return None
+
+
+async def _finalize_exile_vote(eng) -> dict:
+    """Count votes and determine condemned agent."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+
+    vote_counts: dict[int, int] = {}
+    for target_id in EXILE_VOTES.values():
+        vote_counts[target_id] = vote_counts.get(target_id, 0) + 1
+
+    if not vote_counts:
+        EXILE_VOTE_ACTIVE = False
+        return {"condemned": None, "tallies": {}}
+
+    max_votes = max(vote_counts.values())
+    condemned_id = max(vote_counts, key=vote_counts.get)
+
+    with get_db_session() as db:
+        condemned = db.query(Agent).filter(Agent.id == condemned_id).first()
+
+    if condemned:
+        EXILE_CONDEMNED = condemned.name
+        result = {
+            "condemned": condemned.name,
+            "condemned_id": condemned.id,
+            "tallies": {a.name: vote_counts.get(a.id, 0) for a in db.query(Agent).filter(Agent.status == "Alive").all()},
+            "message": f"{condemned.name} has been condemned to exile with {max_votes} votes!",
+        }
+        await eng._broadcast_event(EventType.EXILE_VOTE_RESULT, result)
+
+        # Generate pardon plea
+        from app.llm import llm_service
+        plea = await llm_service.generate_pardon_plea(condemned.name, condemned.personality)
+        await eng._broadcast_event(EventType.PARDON_PLEA, {
+            "agent_name": condemned.name,
+            "plea": plea,
+            "message": f"{condemned.name} begs: '{plea}' — Send 'pardon {condemned.name}' to save them!",
+        })
+
+        return result
+
+    EXILE_VOTE_ACTIVE = False
+    return {"condemned": None, "tallies": {}}
+
+
+async def _execute_exile(eng, agent_name: str) -> bool:
+    """Execute exile on the condemned agent."""
+    with get_db_session() as db:
+        agent = db.query(Agent).filter(
+            Agent.name.ilike(agent_name), Agent.status == "Alive"
+        ).first()
+        if not agent:
+            return False
+
+        agent.status = "Exiled"
+        agent.death_tick = eng._tick_count
+        agent.current_action = "Exiled"
+        agent.mood = 0
+
+        await eng._broadcast_event(EventType.EXILE_EXECUTED, {
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "message": f"{agent.name} has been exiled from the island. They are gone forever.",
+        })
+        await eng._broadcast_event(EventType.AGENT_DIED, {
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+        })
+        return True
+
+
+async def _process_exile_pardon_check(eng) -> bool:
+    """Check if pardon window has expired. If so, execute exile."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+
+    if not EXILE_VOTE_ACTIVE:
+        return False
+
+    if EXILE_CONDEMNED and eng._tick_count - EXILE_VOTE_TICK_STARTED > EXILE_PARDON_WINDOW:
+        await _execute_exile(eng, EXILE_CONDEMNED)
+        EXILE_VOTE_ACTIVE = False
+        EXILE_CONDEMNED = None
+        EXILE_VOTES.clear()
+        return True
+
+    return False
+
+
+async def _pardon_agent(eng, viewer_username: str, agent_name: str) -> bool:
+    """Grant pardon to a condemned agent (赎罪券)."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+
+    if not EXILE_VOTE_ACTIVE or not EXILE_CONDEMNED:
+        return False
+
+    if EXILE_CONDEMNED.lower() != agent_name.lower():
+        return False
+
+    with get_db_session() as db:
+        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
+        if not agent:
+            return False
+
+        agent.loyal_to = viewer_username
+        agent.mood = 100
+        agent.influence_score = (agent.influence_score or 0) + 50
+
+        await eng._broadcast_event(EventType.PARDON_GRANTED, {
+            "agent_name": agent.name,
+            "viewer": viewer_username,
+            "message": f"{viewer_username} has pardoned {agent.name}! They are eternally grateful and loyal.",
+        })
+
+    EXILE_VOTE_ACTIVE = False
+    EXILE_CONDEMNED = None
+    EXILE_VOTES.clear()
+    return True
 

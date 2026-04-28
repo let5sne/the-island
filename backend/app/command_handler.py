@@ -12,7 +12,7 @@ from .config import (
     REVIVE_COST, INITIAL_USER_GOLD, BUILD_COST, BUILDING_TYPES,
     FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
     TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
-    BUILD_PATTERN, TRADE_PATTERN, WHISPER_PATTERN,
+    BUILD_PATTERN, TRADE_PATTERN, WHISPER_PATTERN, PARDON_PATTERN,
 )
 from .database import get_db_session
 from .models import User, Agent, WorldState, GameConfig, Building
@@ -65,6 +65,8 @@ class CommandHandler:
             await self._trade(user, match.group(1), match.group(2), int(match.group(3)))
         elif match := WHISPER_PATTERN.search(message):
             await self._whisper(user, match.group(1), match.group(2))
+        elif match := PARDON_PATTERN.search(message):
+            await self._pardon(user, match.group(1))
         else:
             # Any non-command message becomes a "rumor" (风声) that sways AI opinions
             from app import simulation
@@ -482,3 +484,25 @@ class CommandHandler:
                 "quantity": quantity,
                 "message": f"{from_agent.name} traded {quantity}x {item} to {to_agent.name}!",
             })
+
+    async def _pardon(self, username: str, agent_name: str) -> None:
+        """Pardon a condemned agent (赎罪券 - core monetization)."""
+        from app import simulation
+        success = await simulation._pardon_agent(
+            type('Eng', (), {'_broadcast_event': self._broadcast})(),
+            username, agent_name
+        )
+        if not success:
+            await self._broadcast(EventType.PARDON_DENIED, {
+                "user": username,
+                "message": f"No active exile vote for {agent_name}, or agent not found.",
+            })
+
+    async def _whisper(self, username: str, agent_name: str, message: str) -> None:
+        """Send a directed whisper to sway an agent's opinion."""
+        from app import simulation
+        full_msg = f"{agent_name}: {message}"
+        await simulation._process_rumor(
+            type('Eng', (), {'_broadcast_event': self._broadcast})(),
+            full_msg, username
+        )

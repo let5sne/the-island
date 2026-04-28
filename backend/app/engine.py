@@ -1158,6 +1158,14 @@ class GameEngine:
 
             await self._process_altruism_tick()
 
+            # Daily Exile Vote (at dusk)
+            await simulation._check_and_start_exile_vote(self)
+            await simulation._process_exile_vote(self)
+            await simulation._process_exile_pardon_check(self)
+
+            # Building construction progress
+            await simulation._process_building_construction(self)
+
 
 
             # 8. Random Events (Phase 17-C)
@@ -1171,9 +1179,6 @@ class GameEngine:
             await self._assign_social_roles()
 
             await self._process_clique_behavior()
-
-            # Building construction progress
-            await simulation._process_building_construction(self)
 
             # 7. Idle chat
 

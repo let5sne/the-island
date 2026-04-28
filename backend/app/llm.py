@@ -681,6 +681,41 @@ class LLMService:
             logger.error(f"LLM API error for gratitude: {e}")
             return f"Wow, thank you so much {user}! You're amazing!"
 
+    async def generate_pardon_plea(self, agent_name: str, personality: str) -> str:
+        """Generate a dramatic plea from a condemned agent seeking pardon."""
+        if self._mock_mode:
+            pleas = MOCK_REACTIONS.get("pardon_plea", [
+                "Please! Don't send me away! Someone, help!",
+            ])
+            return random.choice(pleas)
+
+        try:
+            kwargs = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": (
+                        f"You are {agent_name}, a {personality} survivor on a deserted island. "
+                        f"You have just been voted to be exiled by your fellow survivors. "
+                        f"This is your last chance to beg the audience for a pardon. "
+                        f"Generate a short, dramatic, emotional plea (under 30 words). "
+                        f"Make it personal and desperate."
+                    )},
+                    {"role": "user", "content": "Beg for your life!"},
+                ],
+                "max_tokens": 80,
+                "temperature": 0.9,
+            }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
+            if self._api_key and not self._api_key_header:
+                kwargs["api_key"] = self._api_key
+
+            response = await self._acompletion(**kwargs)
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"LLM pardon plea error: {e}")
+            return random.choice(MOCK_REACTIONS["pardon_plea"])
+
 
 # Global instance for easy import
 llm_service = LLMService()

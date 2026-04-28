@@ -74,6 +74,24 @@ class EventType(str, Enum):
     VOTE_RESULT = "vote_result"          # Final voting result
     RESOLUTION_APPLIED = "resolution_applied"  # Plot resolution executed
 
+    # Exile Vote & Pardon (Phase 23)
+    EXILE_VOTE_START = "exile_vote_start"      # Daily exile voting begins
+    EXILE_VOTE_CAST = "exile_vote_cast"        # An agent casts their vote
+    EXILE_VOTE_RESULT = "exile_vote_result"    # Tally complete, condemned named
+    EXILE_EXECUTED = "exile_executed"          # Agent removed from island
+    PARDON_PLEA = "pardon_plea"                # Condemned agent begs for mercy
+    PARDON_GRANTED = "pardon_granted"          # Viewer saved the agent
+    PARDON_DENIED = "pardon_denied"            # No pardon received, exile proceeds
+
+    # Supply Drop (Phase 23)
+    SUPPLY_DROP = "supply_drop"                # Gift-triggered airdrop event
+    RUMOR_EFFECT = "rumor_effect"              # Chat rumor influenced AI opinions
+
+    # Dreamwalking (Phase 23)
+    DREAMWALK_ENTER = "dreamwalk_enter"        # Viewer enters agent's dream
+    DREAMWALK_MESSAGE = "dreamwalk_message"    # Private dream conversation
+    DREAMWALK_EXIT = "dreamwalk_exit"          # Dream session ends
+
 
 class GameEvent(BaseModel):
     """

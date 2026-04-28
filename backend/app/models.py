@@ -66,6 +66,10 @@ class Agent(Base):
     # Shelter System (Phase 20-B)
     is_sheltered = Column(Boolean, default=False)
 
+    # Pardon / Loyalty (Phase 23)
+    loyal_to = Column(String(100), nullable=True)  # Viewer username this agent is loyal to
+    influence_score = Column(Integer, default=0)   # Social influence for exile voting
+
     def __repr__(self):
         return f"<Agent {self.name} ({self.personality}) HP={self.hp} Energy={self.energy} Mood={self.mood}>"
 
