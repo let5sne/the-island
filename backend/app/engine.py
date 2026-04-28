@@ -1166,7 +1166,8 @@ class GameEngine:
             # Building construction progress
             await simulation._process_building_construction(self)
 
-
+            # Personality behaviors
+            await simulation._process_personality_behaviors(self)
 
             # 8. Random Events (Phase 17-C)
 

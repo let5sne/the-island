@@ -16,7 +16,7 @@ from .config import (
     SOCIAL_INTERACTIONS, INITIAL_AGENTS, BUILDING_TYPES,
 )
 from .database import get_db_session
-from .models import Agent, WorldState, GameConfig, AgentRelationship, Building
+from .models import Agent, WorldState, GameConfig, AgentRelationship, AgentMemory, Building
 from .schemas import EventType
 
 logger = logging.getLogger(__name__)
@@ -2303,44 +2303,54 @@ async def _process_rumor_impl(eng, message: str, username: str) -> dict | None:
 
 
 # =============================================================================
-# Daily Exile Vote
+# Daily Exile Vote - Dramatic Spectacle
 # =============================================================================
 
 EXILE_VOTE_ACTIVE = False
-EXILE_VOTES: dict[int, int] = {}  # voter_agent_id -> target_agent_id
+EXILE_VOTE_PHASE = "idle"  # idle -> debate -> voting -> plea -> pardon_window -> resolved
+EXILE_VOTES: dict[int, int] = {}
 EXILE_VOTE_TICK_STARTED = 0
 EXILE_CONDEMNED: str | None = None
-EXILE_PARDON_WINDOW = 30  # ticks to wait for pardon
+EXILE_CONDEMNED_ID: int | None = None
+EXILE_DEBATE_INDEX = 0
+EXILE_PARDON_WINDOW = 30
+EXILE_PARDON_REMINDER_INTERVAL = 8  # Remind every 8 ticks
 
 
 async def _check_and_start_exile_vote(eng) -> bool:
-    """Start daily exile vote at dusk if conditions met."""
-    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_VOTE_TICK_STARTED, EXILE_CONDEMNED
+    """Start the dramatic exile ceremony at dusk."""
+    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_VOTE_TICK_STARTED
+    global EXILE_CONDEMNED, EXILE_CONDEMNED_ID, EXILE_DEBATE_INDEX, EXILE_VOTE_PHASE
 
     with get_db_session() as db:
         world = db.query(WorldState).first()
         if not world or world.time_of_day != "dusk":
             return False
-
         alive = db.query(Agent).filter(Agent.status == "Alive").all()
         if len(alive) < 3:
             return False
 
     EXILE_VOTE_ACTIVE = True
+    EXILE_VOTE_PHASE = "debate"
     EXILE_VOTES = {}
     EXILE_VOTE_TICK_STARTED = eng._tick_count
     EXILE_CONDEMNED = None
+    EXILE_CONDEMNED_ID = None
+    EXILE_DEBATE_INDEX = 0
 
     await eng._broadcast_event(EventType.EXILE_VOTE_START, {
-        "message": "Dusk falls. The agents gather around the campfire to decide who shall be exiled...",
+        "phase": "debate",
+        "message": "🌅 Dusk falls. The agents gather around the crackling campfire. The air is thick with tension — one of them will not see the dawn.",
         "alive_count": len(alive),
+        "total_ticks": len(alive) * 2 + EXILE_PARDON_WINDOW,
     })
     return True
 
 
 async def _process_exile_vote(eng) -> dict | None:
-    """Each tick, one agent casts their exile vote."""
-    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_CONDEMNED
+    """Advance the dramatic exile ceremony one step per tick."""
+    global EXILE_VOTE_ACTIVE, EXILE_VOTES, EXILE_CONDEMNED, EXILE_CONDEMNED_ID
+    global EXILE_DEBATE_INDEX, EXILE_VOTE_PHASE
 
     if not EXILE_VOTE_ACTIVE:
         return None
@@ -2349,45 +2359,199 @@ async def _process_exile_vote(eng) -> dict | None:
         alive = db.query(Agent).filter(Agent.status == "Alive").all()
         if len(alive) < 3:
             EXILE_VOTE_ACTIVE = False
+            EXILE_VOTE_PHASE = "idle"
             return None
 
-        # Find an agent who hasn't voted yet
-        for agent in alive:
-            if agent.id not in EXILE_VOTES:
-                # Vote for whoever has lowest relationship or lowest contribution
-                candidates = [a for a in alive if a.id != agent.id]
-                if not candidates:
-                    continue
+        # === PHASE 1: DEBATE ===
+        if EXILE_VOTE_PHASE == "debate":
+            if EXILE_DEBATE_INDEX < len(alive):
+                agent = alive[EXILE_DEBATE_INDEX]
+                speech = await _generate_debate_speech(agent, alive, db)
+                EXILE_DEBATE_INDEX += 1
 
-                # Pick target based on relationships (negative affection = more likely target)
-                target = random.choice(candidates)
-                for c in candidates:
-                    rel = db.query(AgentRelationship).filter(
-                        AgentRelationship.agent_from_id == agent.id,
-                        AgentRelationship.agent_to_id == c.id,
-                    ).first()
-                    if rel and rel.affection < -10:
-                        target = c
-                        break  # Vote against someone they dislike
-
-                EXILE_VOTES[agent.id] = target.id
                 await eng._broadcast_event(EventType.EXILE_VOTE_CAST, {
+                    "phase": "debate",
+                    "voter": agent.name,
+                    "personality": agent.personality,
+                    "speech": speech,
+                    "progress": f"{EXILE_DEBATE_INDEX}/{len(alive)}",
+                })
+
+                if EXILE_DEBATE_INDEX >= len(alive):
+                    EXILE_VOTE_PHASE = "voting"
+                    EXILE_DEBATE_INDEX = 0
+                    await eng._broadcast_event(EventType.EXILE_VOTE_CAST, {
+                        "phase": "voting_start",
+                        "message": "The debate ends. Each survivor now casts their vote in silence...",
+                    })
+                return None
+
+        # === PHASE 2: VOTING ===
+        if EXILE_VOTE_PHASE == "voting":
+            if EXILE_DEBATE_INDEX < len(alive):
+                agent = alive[EXILE_DEBATE_INDEX]
+                target = _pick_vote_target(agent, alive, db)
+                EXILE_VOTES[agent.id] = target.id
+                EXILE_DEBATE_INDEX += 1
+
+                await eng._broadcast_event(EventType.EXILE_VOTE_CAST, {
+                    "phase": "vote",
                     "voter": agent.name,
                     "target": target.name,
-                    "reason": f"{agent.name} votes to exile {target.name}.",
+                    "progress": f"{EXILE_DEBATE_INDEX}/{len(alive)}",
                 })
-                break  # Process one vote per tick
 
-        # Check if all have voted
-        if len(EXILE_VOTES) >= len(alive):
-            return await _finalize_exile_vote(eng)
+                if EXILE_DEBATE_INDEX >= len(alive):
+                    return await _finalize_exile_spectacle(eng, alive, db)
+                return None
 
-    return None
+        # === PHASE 3: PLEA ===
+        if EXILE_VOTE_PHASE == "plea":
+            return None  # Waiting for plea to be broadcast (handled in _finalize)
+
+        # === PHASE 4: PARDON WINDOW ===
+        if EXILE_VOTE_PHASE == "pardon_window":
+            elapsed = eng._tick_count - EXILE_VOTE_TICK_STARTED
+            remaining = EXILE_PARDON_WINDOW - (elapsed - len(alive) * 2 - 3)
+
+            # Periodic reminder
+            if remaining > 0 and remaining % EXILE_PARDON_REMINDER_INTERVAL == 0:
+                await eng._broadcast_event(EventType.PARDON_PLEA, {
+                    "phase": "countdown",
+                    "agent_name": EXILE_CONDEMNED,
+                    "remaining_seconds": remaining * 5,  # 5s per tick
+                    "message": f"⏳ {remaining * 5}s remaining to pardon {EXILE_CONDEMNED}! Send 'pardon {EXILE_CONDEMNED}'!",
+                })
+
+            if remaining <= 0:
+                await _execute_exile(eng, EXILE_CONDEMNED)
+                EXILE_VOTE_ACTIVE = False
+                EXILE_VOTE_PHASE = "idle"
+                EXILE_VOTES.clear()
+                return {"condemned": EXILE_CONDEMNED, "pardoned": False}
+
+        return None
 
 
-async def _finalize_exile_vote(eng) -> dict:
-    """Count votes and determine condemned agent."""
-    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+def _pick_vote_target(agent, alive: list, db) -> Agent:
+    """Agent picks who to vote for based on their personality and relationships."""
+    candidates = [a for a in alive if a.id != agent.id]
+    if not candidates:
+        return agent
+
+    # Check for grudges (negative affection)
+    for c in candidates:
+        rel = db.query(AgentRelationship).filter(
+            AgentRelationship.agent_from_id == agent.id,
+            AgentRelationship.agent_to_id == c.id,
+        ).first()
+        if rel and rel.affection < -20:
+            return c
+
+    # Personality-based voting logic
+    personality = agent.personality.lower()
+    if "wise" in personality or "sage" in personality:
+        # Vote based on contribution: lowest influence_score
+        return min(candidates, key=lambda a: a.influence_score or 0)
+    elif "hot-headed" in personality or "hotheaded" in personality:
+        # Vote for whoever has highest influence (jealousy)
+        return max(candidates, key=lambda a: a.influence_score or 0)
+    elif "saintly" in personality or "maya" in agent.name.lower():
+        # Vote for the strongest (they can survive exile)
+        return max(candidates, key=lambda a: a.hp)
+    elif "deceptive" in personality or "fox" in agent.name.lower():
+        # Vote strategically — pick whoever already has votes
+        for c in candidates:
+            if c.id in EXILE_VOTES.values():
+                return c
+
+    # Default: random weighted by negative affection
+    return random.choice(candidates)
+
+
+async def _generate_debate_speech(agent, alive: list, db) -> str:
+    """Generate a dramatic debate speech for an agent."""
+    personality = agent.personality
+    rels = db.query(AgentRelationship).filter(
+        AgentRelationship.agent_from_id == agent.id
+    ).all()
+
+    disliked = [r for r in rels if r.affection < -10]
+    liked = [r for r in rels if r.affection > 30]
+
+    # Build speech context
+    target_name = "someone"
+    if disliked:
+        target_id = disliked[0].agent_to_id
+        target = db.query(Agent).filter(Agent.id == target_id).first()
+        if target:
+            target_name = target.name
+
+    speeches = {
+        "Hot-headed": [
+            f"I've had ENOUGH! {target_name} has been dead weight since day one! They need to GO!",
+            f"Stop looking at me like that! {target_name} is the real problem here!",
+        ],
+        "Manipulative": [
+            f"You know, I've noticed some... concerning behavior from {target_name}. Just saying.",
+            f"I hate to be the one to bring this up, but hasn't {target_name} been awfully quiet about their supplies?",
+        ],
+        "Saintly": [
+            f"I don't want anyone to leave... but if I must choose, I think {target_name} would want to go peacefully.",
+            f"We're all suffering. Let's not make this harder than it has to be...",
+        ],
+        "Loner": [
+            "...I vote. That's all.",
+            f"I've survived alone before. {target_name}... you know what you did.",
+        ],
+        "Deceptive": [
+            f"I saw {target_name} hiding food yesterday. Just... think about that.",
+            f"I'm not accusing anyone, but some people contribute more than others. {target_name}, care to explain?",
+        ],
+        "Alpha": [
+            f"Look, I'll be straight with you. {target_name} — you're dragging us down. It's nothing personal.",
+            f"As much as I hate this, {target_name} is the logical choice. Anyone disagree?",
+        ],
+        "Cowardly": [
+            f"Please don't make me choose... I... I guess... {target_name}? I'm so sorry!",
+            f"*trembling* I just don't want any trouble... maybe {target_name} would volunteer?",
+        ],
+        "Risk-taker": [
+            f"Let's make this interesting! {target_name} — double or nothing? No? Then you're out!",
+            f"I say we let fate decide! ...Fine, fine. {target_name}, sorry buddy.",
+        ],
+        "Wise": [
+            f"I've analyzed everyone's contribution. The data points to {target_name}. I take no pleasure in this.",
+            f"Emotion clouds judgment. Objectively, {target_name} has contributed the least. Facts don't lie.",
+        ],
+        "Honest": [
+            f"I'll be honest — {target_name}, I don't think you've been pulling your weight. I'm sorry.",
+            f"This doesn't feel right, but we agreed on the rules. {target_name}, you understand.",
+        ],
+    }
+
+    # Try LLM first, fallback to templates
+    try:
+        from app.llm import llm_service
+        if not llm_service.is_mock_mode:
+            prompt = (
+                f"You are {agent.name}, a {personality} survivor. "
+                f"It's dusk. You must give a short dramatic speech (under 20 words) "
+                f"before voting to exile someone. "
+                f"Your relationships: {', '.join(f'{r.agent_to_id}:{r.affection}' for r in rels[:3])}. "
+                f"Be dramatic and in-character."
+            )
+            # Fall through to templates for mock mode
+    except Exception:
+        pass
+
+    options = speeches.get(personality, speeches["Honest"])
+    return random.choice(options)
+
+
+async def _finalize_exile_spectacle(eng, alive: list, db) -> dict:
+    """Count votes and reveal the condemned with drama."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED, EXILE_CONDEMNED_ID, EXILE_VOTE_PHASE
 
     vote_counts: dict[int, int] = {}
     for target_id in EXILE_VOTES.values():
@@ -2395,41 +2559,56 @@ async def _finalize_exile_vote(eng) -> dict:
 
     if not vote_counts:
         EXILE_VOTE_ACTIVE = False
-        return {"condemned": None, "tallies": {}}
+        EXILE_VOTE_PHASE = "idle"
+        return {"condemned": None}
 
     max_votes = max(vote_counts.values())
     condemned_id = max(vote_counts, key=vote_counts.get)
-
-    with get_db_session() as db:
-        condemned = db.query(Agent).filter(Agent.id == condemned_id).first()
+    condemned = db.query(Agent).filter(Agent.id == condemned_id).first()
 
     if condemned:
         EXILE_CONDEMNED = condemned.name
-        result = {
+        EXILE_CONDEMNED_ID = condemned.id
+        EXILE_VOTE_PHASE = "plea"
+
+        # Build tally for broadcast
+        tally_lines = []
+        for a in alive:
+            vc = vote_counts.get(a.id, 0)
+            bar = "█" * vc + "░" * (max_votes - vc) if max_votes > 0 else ""
+            tally_lines.append(f"  {a.name}: {bar} ({vc})")
+
+        await eng._broadcast_event(EventType.EXILE_VOTE_RESULT, {
             "condemned": condemned.name,
             "condemned_id": condemned.id,
-            "tallies": {a.name: vote_counts.get(a.id, 0) for a in db.query(Agent).filter(Agent.status == "Alive").all()},
-            "message": f"{condemned.name} has been condemned to exile with {max_votes} votes!",
-        }
-        await eng._broadcast_event(EventType.EXILE_VOTE_RESULT, result)
-
-        # Generate pardon plea
-        from app.llm import llm_service
-        plea = await llm_service.generate_pardon_plea(condemned.name, condemned.personality)
-        await eng._broadcast_event(EventType.PARDON_PLEA, {
-            "agent_name": condemned.name,
-            "plea": plea,
-            "message": f"{condemned.name} begs: '{plea}' — Send 'pardon {condemned.name}' to save them!",
+            "tallies": {a.name: vote_counts.get(a.id, 0) for a in alive},
+            "tally_display": "\n".join(tally_lines),
+            "max_votes": max_votes,
+            "message": f"🔨 The tribe has spoken. {condemned.name} is condemned with {max_votes} votes.",
         })
 
-        return result
+        # Generate dramatic plea
+        from app.llm import llm_service
+        plea = await llm_service.generate_pardon_plea(condemned.name, condemned.personality)
+        EXILE_VOTE_PHASE = "pardon_window"
+        await eng._broadcast_event(EventType.PARDON_PLEA, {
+            "phase": "plea",
+            "agent_name": condemned.name,
+            "personality": condemned.personality,
+            "plea": plea,
+            "pardon_window_seconds": EXILE_PARDON_WINDOW * 5,
+            "message": f'😭 {condemned.name} falls to their knees: "{plea}"\n⏳ Type pardon {condemned.name} to save them! ({EXILE_PARDON_WINDOW * 5}s remaining)',
+        })
+
+        return {"condemned": condemned.name, "condemned_id": condemned.id}
 
     EXILE_VOTE_ACTIVE = False
-    return {"condemned": None, "tallies": {}}
+    EXILE_VOTE_PHASE = "idle"
+    return {"condemned": None}
 
 
 async def _execute_exile(eng, agent_name: str) -> bool:
-    """Execute exile on the condemned agent."""
+    """Execute exile with dramatic final broadcast."""
     with get_db_session() as db:
         agent = db.query(Agent).filter(
             Agent.name.ilike(agent_name), Agent.status == "Alive"
@@ -2442,43 +2621,61 @@ async def _execute_exile(eng, agent_name: str) -> bool:
         agent.current_action = "Exiled"
         agent.mood = 0
 
+        # Dramatic exile messages
+        exile_messages = [
+            f"🌊 {agent.name} walks slowly into the dark ocean, never to return. The island falls silent.",
+            f"🕯️ Without a word, {agent.name} picks up their few belongings and vanishes into the night.",
+            f"🔥 {agent.name} takes one last look at the campfire, then disappears into the shadows.",
+        ]
+
         await eng._broadcast_event(EventType.EXILE_EXECUTED, {
             "agent_id": agent.id,
             "agent_name": agent.name,
-            "message": f"{agent.name} has been exiled from the island. They are gone forever.",
+            "personality": agent.personality,
+            "message": random.choice(exile_messages),
         })
         await eng._broadcast_event(EventType.AGENT_DIED, {
             "agent_id": agent.id,
             "agent_name": agent.name,
         })
+
+        # All survivors get a memory of this exile
+        alive = db.query(Agent).filter(Agent.status == "Alive").all()
+        for a in alive:
+            memory_text = f"Watched {agent.name} be exiled from the island. I voted to {'save' if a.id not in EXILE_VOTES or EXILE_VOTES.get(a.id) != agent.id else 'exile'} them."
+            db.add(AgentMemory(agent_id=a.id, description=memory_text, importance=9, memory_type="event"))
+
         return True
 
 
 async def _process_exile_pardon_check(eng) -> bool:
-    """Check if pardon window has expired. If so, execute exile."""
-    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+    """Check pardon window countdown."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED, EXILE_VOTE_PHASE
 
-    if not EXILE_VOTE_ACTIVE:
+    if not EXILE_VOTE_ACTIVE or EXILE_VOTE_PHASE != "pardon_window":
         return False
 
-    if EXILE_CONDEMNED and eng._tick_count - EXILE_VOTE_TICK_STARTED > EXILE_PARDON_WINDOW:
-        await _execute_exile(eng, EXILE_CONDEMNED)
+    elapsed = eng._tick_count - EXILE_VOTE_TICK_STARTED
+    total_debate_ticks = len(EXILE_VOTES) * 2 + 3 if EXILE_VOTES else 13
+    if elapsed - total_debate_ticks >= EXILE_PARDON_WINDOW:
+        if EXILE_CONDEMNED:
+            await _execute_exile(eng, EXILE_CONDEMNED)
         EXILE_VOTE_ACTIVE = False
+        EXILE_VOTE_PHASE = "idle"
         EXILE_CONDEMNED = None
         EXILE_VOTES.clear()
         return True
-
     return False
 
 
 async def _pardon_agent(eng, viewer_username: str, agent_name: str) -> bool:
-    """Grant pardon to a condemned agent (赎罪券)."""
-    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED
+    """Grant pardon with dramatic flourish (赎罪券)."""
+    global EXILE_VOTE_ACTIVE, EXILE_CONDEMNED, EXILE_VOTE_PHASE
 
-    if not EXILE_VOTE_ACTIVE or not EXILE_CONDEMNED:
+    if not EXILE_VOTE_ACTIVE or EXILE_VOTE_PHASE != "pardon_window":
         return False
 
-    if EXILE_CONDEMNED.lower() != agent_name.lower():
+    if not EXILE_CONDEMNED or EXILE_CONDEMNED.lower() != agent_name.lower():
         return False
 
     with get_db_session() as db:
@@ -2493,11 +2690,321 @@ async def _pardon_agent(eng, viewer_username: str, agent_name: str) -> bool:
         await eng._broadcast_event(EventType.PARDON_GRANTED, {
             "agent_name": agent.name,
             "viewer": viewer_username,
-            "message": f"{viewer_username} has pardoned {agent.name}! They are eternally grateful and loyal.",
+            "message": f"✨ {viewer_username} throws a golden token into the fire! {agent.name} is SAVED! They drop to their knees, tears streaming: 'I am yours forever, {viewer_username}!'",
         })
 
     EXILE_VOTE_ACTIVE = False
+    EXILE_VOTE_PHASE = "idle"
     EXILE_CONDEMNED = None
     EXILE_VOTES.clear()
+    return True
+
+
+# =============================================================================
+# Personality-Specific Behaviors (AI Depth)
+# =============================================================================
+
+async def _process_personality_behaviors(eng) -> None:
+    """Each tick, each agent may perform a personality-specific action."""
+    with get_db_session() as db:
+        agents = db.query(Agent).filter(Agent.status == "Alive").all()
+        if len(agents) < 2:
+            return
+
+        for agent in agents:
+            p = agent.personality.lower()
+            try:
+                if "deceptive" in p and random.random() < 0.08:
+                    await _behavior_steal(eng, agent, agents, db)
+                elif "manipulative" in p and random.random() < 0.10:
+                    await _behavior_spread_rumor(eng, agent, agents, db)
+                elif "hot-headed" in p and random.random() < 0.06:
+                    await _behavior_confrontation(eng, agent, agents, db)
+                elif "alpha" in p and random.random() < 0.10:
+                    await _behavior_delegate(eng, agent, agents, db)
+                elif "wise" in p and random.random() < 0.08:
+                    await _behavior_analyze(eng, agent, agents, db)
+            except Exception:
+                pass  # Non-critical behaviors shouldn't crash the tick
+
+
+async def _behavior_steal(eng, thief, agents: list, db) -> None:
+    """Fox/Deceptive: steal from another agent's inventory."""
+    victims = [a for a in agents if a.id != thief.id and a.inventory and a.inventory != "{}"]
+    if not victims:
+        return
+    victim = random.choice(victims)
+    v_inv = eng._get_inventory(victim)
+    if not v_inv:
+        return
+
+    item = random.choice(list(v_inv.keys()))
+    qty = min(v_inv[item], random.randint(1, 2))
+    if qty <= 0:
+        return
+
+    v_inv[item] -= qty
+    t_inv = eng._get_inventory(thief)
+    t_inv[item] = t_inv.get(item, 0) + qty
+    eng._set_inventory(victim, v_inv)
+    eng._set_inventory(thief, t_inv)
+
+    thief.mood = min(100, thief.mood + 5)
+    victim.mood = max(0, victim.mood - 10)
+
+    # Update relationship
+    rel = db.query(AgentRelationship).filter(
+        AgentRelationship.agent_from_id == victim.id,
+        AgentRelationship.agent_to_id == thief.id,
+    ).first()
+    if rel:
+        rel.affection = max(-100, rel.affection - 15)
+
+    # Secret event - only thief knows
+    await eng._broadcast_event("agent_action", {
+        "agent_id": thief.id, "agent_name": thief.name,
+        "action": "Steal",
+        "message": f"{thief.name} secretly took {qty}x {item} from {victim.name}...",
+        "secret": True,
+    })
+
+
+async def _behavior_spread_rumor(eng, agent, agents: list, db) -> None:
+    """Luna/Manipulative: spread a rumor about someone."""
+    targets = [a for a in agents if a.id != agent.id]
+    if not targets:
+        return
+    target = random.choice(targets)
+    listeners = [a for a in agents if a.id != agent.id and a.id != target.id]
+    if not listeners:
+        return
+    listener = random.choice(listeners)
+
+    # Affect listener's opinion of target
+    rel = db.query(AgentRelationship).filter(
+        AgentRelationship.agent_from_id == listener.id,
+        AgentRelationship.agent_to_id == target.id,
+    ).first()
+    if rel:
+        rel.trust = max(-100, rel.trust - 8)
+
+    await eng._broadcast_event("agent_action", {
+        "agent_id": agent.id, "agent_name": agent.name,
+        "action": "SpreadRumor",
+        "target_name": target.name,
+        "message": f"{agent.name} whispers something about {target.name} to {listener.name}...",
+    })
+
+
+async def _behavior_confrontation(eng, agent, agents: list, db) -> None:
+    """Rex/Hot-headed: confront someone, causing HP/mood damage."""
+    targets = [a for a in agents if a.id != agent.id]
+    if not targets:
+        return
+    target = random.choice(targets)
+
+    damage = random.randint(5, 15)
+    target.hp = max(0, target.hp - damage)
+    target.mood = max(0, target.mood - 15)
+    agent.mood = min(100, agent.mood + 5)
+
+    # Relationship hit
+    rel = db.query(AgentRelationship).filter(
+        AgentRelationship.agent_from_id == target.id,
+        AgentRelationship.agent_to_id == agent.id,
+    ).first()
+    if rel:
+        rel.affection = max(-100, rel.affection - 20)
+
+    await eng._broadcast_event("agent_action", {
+        "agent_id": agent.id, "agent_name": agent.name,
+        "action": "Confront",
+        "target_name": target.name,
+        "message": f"💢 {agent.name} explodes at {target.name}! (-{damage} HP)",
+    })
+
+
+async def _behavior_delegate(eng, agent, agents: list, db) -> None:
+    """Alpha: assign tasks to followers, boosting their mood and efficiency."""
+    followers = [a for a in agents if a.id != agent.id and a.social_role == "follower"]
+    if not followers:
+        # Turn someone into a follower
+        candidate = random.choice([a for a in agents if a.id != agent.id])
+        candidate.social_role = "follower"
+        await eng._broadcast_event("agent_action", {
+            "agent_id": agent.id, "agent_name": agent.name,
+            "action": "Delegate",
+            "target_name": candidate.name,
+            "message": f"👑 {agent.name} takes charge! {candidate.name} falls in line as a follower.",
+        })
+        return
+
+    follower = random.choice(followers)
+    follower.mood = min(100, follower.mood + 8)
+    await eng._broadcast_event("agent_action", {
+        "agent_id": agent.id, "agent_name": agent.name,
+        "action": "Delegate",
+        "target_name": follower.name,
+        "message": f"👑 {agent.name} delegates tasks. {follower.name} feels valued. (+8 mood)",
+    })
+
+
+async def _behavior_analyze(eng, agent, agents: list, db) -> None:
+    """Sage/Wise: analyze the situation and gain strategic insight."""
+    # Boost own immunity and influence
+    agent.immunity = min(100, (agent.immunity or 50) + 3)
+    agent.influence_score = (agent.influence_score or 0) + 2
+
+    # Find the most strategic ally
+    best_ally = None
+    best_score = -1
+    for other in agents:
+        if other.id == agent.id:
+            continue
+        score = (other.influence_score or 0) + other.hp * 0.3 + other.energy * 0.2
+        if score > best_score:
+            best_score = score
+            best_ally = other
+
+    ally_name = best_ally.name if best_ally else "no one"
+    await eng._broadcast_event("agent_action", {
+        "agent_id": agent.id, "agent_name": agent.name,
+        "action": "Analyze",
+        "message": f"🔍 {agent.name} studies the situation carefully. '{ally_name} is our best asset right now,' they conclude.",
+    })
+
+
+# =============================================================================
+# Dreamwalking System (夜晚梦境 - Premium Private Chat)
+# =============================================================================
+
+DREAM_SESSIONS: dict[str, dict] = {}  # viewer_username -> {agent_id, agent_name, started_at_tick}
+
+
+async def _start_dreamwalk(eng, viewer_username: str, agent_name: str) -> bool:
+    """Enter an agent's dream for private conversation."""
+    global DREAM_SESSIONS
+
+    if viewer_username in DREAM_SESSIONS:
+        return False
+
+    with get_db_session() as db:
+        agent = db.query(Agent).filter(
+            Agent.name.ilike(agent_name), Agent.status == "Alive"
+        ).first()
+        if not agent:
+            return False
+
+        world = db.query(WorldState).first()
+        if not world or world.time_of_day != "night":
+            return False
+
+    DREAM_SESSIONS[viewer_username] = {
+        "agent_id": agent.id,
+        "agent_name": agent.name,
+        "started_at_tick": eng._tick_count,
+    }
+
+    await eng._broadcast_event(EventType.DREAMWALK_ENTER, {
+        "viewer": viewer_username,
+        "agent_name": agent.name,
+        "message": f"🌙 {viewer_username} enters {agent.name}'s dream... The world shifts and blurs.",
+        "private": True,
+        "private_to": viewer_username,
+    })
+    return True
+
+
+async def _process_dreamwalk_message(eng, viewer_username: str, message: str) -> str | None:
+    """Process a message sent during dreamwalking. Returns agent's dream response."""
+    if viewer_username not in DREAM_SESSIONS:
+        return None
+
+    session = DREAM_SESSIONS[viewer_username]
+    agent_id = session["agent_id"]
+    agent_name = session["agent_name"]
+
+    with get_db_session() as db:
+        agent = db.query(Agent).filter(Agent.id == agent_id).first()
+        if not agent:
+            del DREAM_SESSIONS[viewer_username]
+            return None
+
+        # Check for suggestion patterns
+        suggestion = _parse_dream_suggestion(message)
+        if suggestion:
+            from app.models import AgentMemory
+            mem = AgentMemory(
+                agent_id=agent.id,
+                description=f"Dream suggestion from {viewer_username}: {suggestion['text']}",
+                importance=7,
+                related_entity_name=suggestion.get("target"),
+                memory_type="dream_suggestion",
+                tick_created=eng._tick_count,
+            )
+            db.add(mem)
+
+        # Generate dream response
+        from app.llm import llm_service
+        response = _get_dream_response_text(agent, viewer_username, message)
+
+        await eng._broadcast_event(EventType.DREAMWALK_MESSAGE, {
+            "agent_name": agent.name,
+            "viewer": viewer_username,
+            "message": message,
+            "response": response,
+            "private": True,
+            "private_to": viewer_username,
+        })
+        return response
+
+
+def _parse_dream_suggestion(message: str) -> dict | None:
+    """Parse a dream message for behavior suggestions."""
+    msg_lower = message.lower()
+    if "frame" in msg_lower:
+        # "frame Jack" -> plant suggestion to frame Jack
+        import re
+        match = re.search(r"frame\s+(\w+)", msg_lower)
+        if match:
+            return {"type": "frame", "target": match.group(1).capitalize(), "text": message}
+    if "trust" in msg_lower:
+        match = re.search(r"trust\s+(\w+)", msg_lower)
+        if match:
+            return {"type": "trust", "target": match.group(1).capitalize(), "text": message}
+    if "ally" in msg_lower or "befriend" in msg_lower:
+        match = re.search(r"(?:ally|befriend)\s+(\w+)", msg_lower)
+        if match:
+            return {"type": "ally", "target": match.group(1).capitalize(), "text": message}
+    if "tomorrow" in msg_lower or "suggest" in msg_lower:
+        return {"type": "general", "text": message}
+    return None
+
+
+def _get_dream_response_text(agent, viewer_username: str, message: str) -> str:
+    """Generate dream-state response text."""
+    import random as _random
+    responses = [
+        f"*In the dream, {agent.name} floats in a sea of stars* ...I hear you, {viewer_username}... your words echo in my soul...",
+        f"*{agent.name} stands in a misty forest* ...yes... I see what you mean... tomorrow will be different...",
+        f"*A surreal vision: {agent.name} whispers* ...{viewer_username}... only you understand... I will remember this...",
+        f"*{agent.name} speaks in riddles* ...when the sun rises, I will act. Your secret is safe with me...",
+    ]
+    return _random.choice(responses)
+
+
+async def _end_dreamwalk(eng, viewer_username: str) -> bool:
+    """End a dreamwalk session."""
+    if viewer_username not in DREAM_SESSIONS:
+        return False
+
+    session = DREAM_SESSIONS.pop(viewer_username)
+    await eng._broadcast_event(EventType.DREAMWALK_EXIT, {
+        "viewer": viewer_username,
+        "agent_name": session["agent_name"],
+        "message": f"🌙 {viewer_username} fades out of {session['agent_name']}'s dream. Dawn approaches...",
+        "private": True,
+        "private_to": viewer_username,
+    })
     return True
 

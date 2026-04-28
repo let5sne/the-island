@@ -13,6 +13,7 @@ from .config import (
     FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
     TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
     BUILD_PATTERN, TRADE_PATTERN, WHISPER_PATTERN, PARDON_PATTERN,
+    DREAMWALK_PATTERN, ENDDREAM_PATTERN,
 )
 from .database import get_db_session
 from .models import User, Agent, WorldState, GameConfig, Building
@@ -67,6 +68,10 @@ class CommandHandler:
             await self._whisper(user, match.group(1), match.group(2))
         elif match := PARDON_PATTERN.search(message):
             await self._pardon(user, match.group(1))
+        elif match := DREAMWALK_PATTERN.search(message):
+            await self._dreamwalk(user, match.group(1))
+        elif ENDDREAM_PATTERN.search(message):
+            await self._enddream(user)
         else:
             # Any non-command message becomes a "rumor" (风声) that sways AI opinions
             from app import simulation
@@ -506,3 +511,20 @@ class CommandHandler:
             type('Eng', (), {'_broadcast_event': self._broadcast})(),
             full_msg, username
         )
+
+    async def _dreamwalk(self, username: str, agent_name: str) -> None:
+        """Enter an agent's dream at night (premium feature)."""
+        from app import simulation
+        eng = type('Eng', (), {'_broadcast_event': self._broadcast})()
+        success = await simulation._start_dreamwalk(eng, username, agent_name)
+        if not success:
+            await self._broadcast(EventType.ERROR, {
+                "user": username,
+                "message": f"Cannot enter dream. Agent '{agent_name}' may be dead, not night, or you're already in a dream.",
+            })
+
+    async def _enddream(self, username: str) -> None:
+        """End current dreamwalk session."""
+        from app import simulation
+        eng = type('Eng', (), {'_broadcast_event': self._broadcast})()
+        await simulation._end_dreamwalk(eng, username)

@@ -122,6 +122,8 @@ BUILD_PATTERN = re.compile(r"build\s+(\w+)", re.IGNORECASE)
 TRADE_PATTERN = re.compile(r"trade\s+(\w+)\s+(\w+)\s+(\d+)", re.IGNORECASE)
 WHISPER_PATTERN = re.compile(r"whisper\s+(\w+)\s+(.+)", re.IGNORECASE)
 PARDON_PATTERN = re.compile(r"pardon\s+(\w+)", re.IGNORECASE)
+DREAMWALK_PATTERN = re.compile(r"dream\s+(\w+)", re.IGNORECASE)
+ENDDREAM_PATTERN = re.compile(r"enddream", re.IGNORECASE)
 
 # =============================================================================
 # Rumors / Whispers
