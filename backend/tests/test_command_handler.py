@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app import command_handler as ch_module
+from app import simulation as sim_module
 from app.command_handler import CommandHandler
 
 
@@ -36,8 +37,9 @@ def test_db():
 
 @pytest.fixture(autouse=True)
 def patch_db(test_db, monkeypatch):
-    """Auto-patch get_db_session in command_handler module for all tests."""
+    """Auto-patch get_db_session in command_handler and simulation modules."""
     monkeypatch.setattr(ch_module, "get_db_session", test_db)
+    monkeypatch.setattr(sim_module, "get_db_session", test_db)
 
 
 @pytest.fixture

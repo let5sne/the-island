@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app import command_handler as ch_module
+from app import simulation as sim_module
 from app import engine as engine_module
 from app.engine import GameEngine
 
@@ -33,6 +34,7 @@ def patch_db(monkeypatch):
             db.close()
 
     monkeypatch.setattr(ch_module, "get_db_session", test_session)
+    monkeypatch.setattr(sim_module, "get_db_session", test_session)
     monkeypatch.setattr(engine_module, "get_db_session", test_session)
 
 
