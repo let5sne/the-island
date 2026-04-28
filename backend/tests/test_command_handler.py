@@ -1,11 +1,43 @@
 """Tests for command_handler.py - User command processing."""
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app.database import Base
+from app import command_handler as ch_module
 from app.command_handler import CommandHandler
-from app.database import get_db_session
+
+
+@pytest.fixture
+def test_db():
+    """Create in-memory SQLite for command handler tests."""
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+
+    @contextmanager
+    def test_session():
+        db = Session()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    return test_session
+
+
+@pytest.fixture(autouse=True)
+def patch_db(test_db, monkeypatch):
+    """Auto-patch get_db_session in command_handler module for all tests."""
+    monkeypatch.setattr(ch_module, "get_db_session", test_db)
 
 
 @pytest.fixture
@@ -31,10 +63,6 @@ def handler(mock_broadcast, mock_vfx, mock_speak):
         trigger_agent_speak_callback=mock_speak,
     )
 
-
-# =============================================================================
-# Test command routing (handle)
-# =============================================================================
 
 class TestCommandRouting:
     @pytest.mark.asyncio
@@ -82,10 +110,21 @@ class TestCommandRouting:
         await handler.handle("player1", "reset")
         assert mock_broadcast.called
 
+    @pytest.mark.asyncio
+    async def test_build_command_matched(self, handler, mock_broadcast):
+        await handler.handle("player1", "build shelter")
+        assert mock_broadcast.called
 
-# =============================================================================
-# Test command execution (with DB)
-# =============================================================================
+    @pytest.mark.asyncio
+    async def test_pardon_command_matched(self, handler, mock_broadcast):
+        await handler.handle("player1", "pardon Jack")
+        assert mock_broadcast.called
+
+    @pytest.mark.asyncio
+    async def test_dreamwalk_command_matched(self, handler, mock_broadcast):
+        await handler.handle("player1", "dream Jack")
+        assert mock_broadcast.called
+
 
 class TestCommandExecution:
     @pytest.mark.asyncio
@@ -96,7 +135,6 @@ class TestCommandExecution:
             trigger_agent_speak_callback=mock_speak,
         )
         await handler.handle("player1", "feed Nonexistent")
-        # Should broadcast error
         error_events = [c for c in mock_broadcast.call_args_list
                        if c[0][0] == "error"]
         assert len(error_events) >= 1
@@ -111,10 +149,6 @@ class TestCommandExecution:
         await handler.handle("player1", "check")
         assert mock_broadcast.called
 
-
-# =============================================================================
-# Test constructor wiring
-# =============================================================================
 
 class TestCommandHandlerInit:
     def test_accepts_llm_service(self, mock_broadcast, mock_vfx, mock_speak):

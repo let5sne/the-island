@@ -1,16 +1,39 @@
-"""Tests for engine.py - GameEngine critical paths.
+"""Tests for engine.py - GameEngine critical paths."""
 
-Tests focus on command routing, vote integration, and engine lifecycle.
-Deep survival/social/activity tests require Phase 21 refactoring to be
-testable without complex fixture orchestration.
-"""
-
-import time
-from unittest.mock import AsyncMock, patch
+from contextlib import contextmanager
 
 import pytest
+from unittest.mock import AsyncMock, patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app.database import Base
+from app import command_handler as ch_module
+from app import engine as engine_module
 from app.engine import GameEngine
+
+
+@pytest.fixture(autouse=True)
+def patch_db(monkeypatch):
+    """Auto-patch get_db_session for all engine tests."""
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+
+    @contextmanager
+    def test_session():
+        db = Session()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    monkeypatch.setattr(ch_module, "get_db_session", test_session)
+    monkeypatch.setattr(engine_module, "get_db_session", test_session)
 
 
 @pytest.fixture
