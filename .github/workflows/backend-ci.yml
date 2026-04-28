@@ -1,0 +1,55 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, 'phase-*', 'feature/*']
+    paths: ['backend/**', '.github/workflows/backend-ci.yml']
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx bandit mypy
+
+      - name: Run tests with coverage
+        run: |
+          cd backend
+          python -m pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Security scan with Bandit
+        run: bandit -r backend/app/ -ll
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install mypy
+          pip install -r backend/requirements.txt
+
+      - name: Type check with mypy
+        run: mypy backend/app/ --ignore-missing-imports --check-untyped-defs
+        continue-on-error: true
