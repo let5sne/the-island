@@ -316,11 +316,15 @@ class GameEngine:
 
     async def _broadcast_event(self, event_type: str, data: dict) -> None:
 
-        """Create and broadcast a game event."""
+        """Create and broadcast a game event. Supports private messages via data['private_to']."""
 
+        private_to = data.pop("private_to", None) if isinstance(data, dict) else None
         event = GameEvent(event_type=event_type, timestamp=time.time(), data=data)
 
-        await self._manager.broadcast(event)
+        if private_to:
+            await self._manager.broadcast(event, private_to=private_to)
+        else:
+            await self._manager.broadcast(event)
 
 
 

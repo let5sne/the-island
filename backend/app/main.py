@@ -116,7 +116,6 @@ async def health():
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time game communication.
-
     Handles client connections and processes incoming messages.
     """
     await manager.connect(websocket)
@@ -128,23 +127,24 @@ async def websocket_endpoint(websocket: WebSocket):
     )
     await manager.send_personal(websocket, welcome)
 
+    username = None
     try:
         while True:
-            # Receive and parse client message
             data = await websocket.receive_json()
             message = ClientMessage(**data)
 
-            # Handle mock comment action
-            if message.action == "send_comment":
-                user = message.payload.get("user", "Anonymous")
+            # Track username for private messages (dreamwalking)
+            user = message.payload.get("user", "Anonymous")
+            if username is None and user != "Anonymous":
+                username = user
+                manager._user_connections[username] = websocket
+
+            if message.action == "send_comment" or message.action == "comment":
                 text = message.payload.get("message", "")
                 await engine.process_comment(user, text)
 
-            # Handle test gift action
             elif message.action == "test_gift":
-                user = message.payload.get("user", "TestUser")
                 bits = int(message.payload.get("bits", 100))
-                # Trigger handle_gift in engine
                 await engine.handle_gift(user, bits, "bits")
 
     except WebSocketDisconnect:

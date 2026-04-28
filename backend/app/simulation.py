@@ -17,6 +17,7 @@ from .config import (
 )
 from .database import get_db_session
 from .models import Agent, WorldState, GameConfig, AgentRelationship, AgentMemory, Building
+from .llm import llm_service
 from .schemas import EventType
 
 logger = logging.getLogger(__name__)
