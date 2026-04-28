@@ -1,83 +1,138 @@
-# The Island - 荒岛生存模拟游戏
+# 《荒岛：人性的试炼》 (Project: The Island)
 
-一个实时多人互动的荒岛生存模拟游戏，玩家可以通过命令与 AI 角色互动，帮助他们在荒岛上生存。
+一个实时多人互动的荒岛生存+社交博弈游戏。10 个性格迥异的 AI 被投放到荒岛，观众通过弹幕和礼物影响 AI 的命运——帮助他们结盟、陷害对手、获取资源，活到最后。
 
 ## 项目架构
 
 ```
 the-island/
-├── backend/           # Python FastAPI 后端服务
+├── backend/                  # Python FastAPI 后端服务
 │   └── app/
-│       ├── main.py          # 应用入口
-│       ├── server.py        # WebSocket 服务器
-│       ├── engine.py        # 游戏引擎核心逻辑
-│       ├── models.py        # SQLAlchemy 数据模型
-│       ├── schemas.py       # Pydantic 消息模式
-│       ├── llm.py           # LLM 集成 (对话生成)
-│       ├── memory_service.py # Agent 记忆管理服务
-│       ├── twitch_service.py # Twitch 聊天机器人
-│       ├── director_service.py # AI 导演服务 (叙事生成)
-│       ├── vote_manager.py  # 投票管理器
-│       └── database.py      # 数据库配置
-├── frontend/          # Web 调试客户端
-│   ├── app.js           # JavaScript 客户端
-│   └── debug_client.html # 调试页面
-├── unity-client/      # Unity 6 游戏客户端
-│   └── Assets/
-│       ├── Scripts/     # C# 游戏脚本
-│       ├── Fonts/       # 字体资源 (含中文支持)
-│       └── Editor/      # 编辑器工具
-└── island.db          # SQLite 数据库
+│       ├── main.py            # FastAPI 应用入口
+│       ├── server.py          # WebSocket 服务器
+│       ├── engine.py          # 游戏引擎 Facade（730 行）
+│       ├── simulation.py      # 生存/社交/活动/建造模拟逻辑
+│       ├── command_handler.py # 玩家命令处理（9 个命令）
+│       ├── config.py          # 游戏常量配置
+│       ├── models.py          # SQLAlchemy 数据模型
+│       ├── repositories.py    # 数据访问层
+│       ├── schemas.py         # Pydantic 消息协议
+│       ├── llm.py             # LLM 集成（对话生成）
+│       ├── memory_service.py  # Agent 记忆管理
+│       ├── twitch_service.py  # Twitch 聊天机器人
+│       ├── director_service.py # AI 导演服务（叙事生成）
+│       ├── vote_manager.py    # 投票管理器
+│       └── database.py        # 数据库配置
+├── frontend/                  # Web 调试客户端
+├── unity-client/              # Unity 6 游戏客户端
+│   └── Assets/Scripts/        # C# 游戏脚本
+├── .github/workflows/         # CI/CD
+└── backend/tests/             # 195 个测试
 ```
 
-## 功能特性
+## 游戏设定
 
-### 游戏系统
-- **生存机制**: 角色有 HP、能量、心情三大属性
-- **昼夜循环**: 黎明 → 白天 → 黄昏 → 夜晚
-- **天气系统**: 晴天、多云、雨天、暴风雨、炎热、雾天
-- **社交系统**: 角色间自主社交互动
-- **休闲模式**: 自动复活、降低难度
-- **自主行动**: 角色会自动进行采集、休息、社交等行为
-- **疾病机制**: 恶劣天气和低免疫力可能导致生病
-- **制作系统**: 使用草药制作药品治愈疾病
-- **资源稀缺**: 树木果实有限，每日再生
-- **社交角色**: 领导者、追随者、独行者动态关系
-- **记忆系统**: Agent 会记住重要的互动和事件
-- **随机事件**: 风暴破坏、发现宝藏、野兽袭击等
-- **AI 导演系统**: 自动生成剧情事件，观众投票决定剧情走向
-- **叙事投票**: Twitch 观众通过 `!1` `!2` 命令参与剧情决策
+10 个性格迥异的 AI 被投放到荒岛。目标：**活到最后**。
 
-### 玩家命令
-| 命令 | 格式 | 金币消耗 | 效果 |
-|------|------|----------|------|
+**性格谱系**：
+- **老实人**（Jack）：诚实可靠，容易相信他人
+- **心机女**（Luna）：善于操控，见风使舵
+- **暴躁哥**（Rex）：脾气火爆，一言不合就翻脸
+- **圣母**（Maya）：乐于助人，宁愿自己挨饿也要分享
+- **独狼**（Shadow）：不信任任何人，独自行动
+- **骗子**（Fox）：谎话连篇，偷窃成性
+- **领袖**（Alpha）：自信果断，天然吸引追随者
+- **懦夫**（Mouse）：胆小怕事，遇事就躲
+- **赌徒**（Dice）：热爱冒险，高风险高回报
+- **智者**（Sage）：冷静理性，擅长分析和制作
+
+---
+
+## 游戏循环：一天三幕
+
+```mermaid
+graph LR
+    A[☀️ 白天 探索与社交] --> B[🌅 黄昏 投票与审判]
+    B --> C[🌙 夜晚 梦境与密谋]
+    C --> A
+```
+
+### ☀️ 白天：探索与社交（Simulation）
+
+AI 们搜集资源、彼此聊天、结盟或树敌。
+
+| 观众行为 | 触发方式 | 效果 |
+|----------|----------|------|
+| **风声（免费）** | 发送弹幕 | AI 会听到"风声"——可能改变他们对其他人的看法 |
+| **空投物资（付费）** | 刷指定礼物 | 空投落到岛上，AI 争夺。独占或分享影响社交地位 |
+| **喂食/治疗** | `feed` / `heal` | 消耗金币恢复 AI 状态 |
+
+### 🌅 黄昏：投票与审判（Voting）
+
+AI 围坐火堆旁，讨论今天谁贡献最少，投票流放一人。
+
+| 机制 | 说明 |
+|------|------|
+| 讨论环节 | AI 根据当天事件和记忆，发表对彼此的看法 |
+| 投票流放 | 每人一票，得票最高者被流放（死亡） |
+| **赎罪券（核心付费点）** | 被流放的 AI 会哭诉求饶，此时刷特定礼物可赐予"免死金牌" |
+
+获得免死金牌的 AI 会**极其感激救命恩人**，成为恩人的死忠粉，后续游戏中无条件支持恩人的指令。
+
+### 🌙 夜晚：梦境与密谋（Private Chat）
+
+AI 进入睡眠。观众可付费进入 AI 梦境进行私聊。
+
+| 模式 | 说明 | 付费 |
+|------|------|------|
+| **公开风声** | 对所有人可见的弹幕 | 免费 |
+| **入梦私聊（高级玩法）** | 进入特定 AI 的梦境，告诉他明天陷害谁、投靠谁 | 付费 |
+
+---
+
+## 游戏系统
+
+### 生存机制
+- **HP / 能量 / 心情** 三大属性
+- **疾病系统**：恶劣天气导致生病，可用药品治愈
+- **制作系统**：采集草药 → 制作药品
+- **建造系统**：建造掩体/瞭望塔/农场/工坊
+- **贸易系统**：Agent 间交换物品
+- **休闲模式**：自动复活、降低难度
+- **资源稀缺**：树木果实有限，每日再生
+
+### 社交系统
+- **关系网络**：友好/中立/敌对，动态变化
+- **社交角色**：leader / follower / loner / neutral
+- **派系行为**：领导者影响追随者行动
+- **记忆系统**：Agent 记住重要的互动和事件
+
+### AI 导演系统
+- **叙事事件**：导演根据世界状态生成剧情
+- **观众投票**：`!1` / `!2` 决定剧情走向
+- **四种模式**：simulation → narrative → voting → resolution
+
+### 天气与时间
+- **天气**：Sunny / Cloudy / Rainy / Stormy / Hot / Foggy
+- **昼夜**：dawn → day → dusk → night
+
+---
+
+## 玩家命令
+
+| 命令 | 格式 | 消耗 | 效果 |
+|------|------|------|------|
 | feed | `feed <角色名>` | 10g | +20 能量, +5 HP |
-| heal | `heal <角色名>` | 15g | +30 HP |
+| heal | `heal <角色名>` | 15g | +30 HP, 治愈疾病 |
 | talk | `talk <角色名> [话题]` | 0g | 与角色对话 |
 | encourage | `encourage <角色名>` | 5g | +15 心情 |
 | revive | `revive <角色名>` | 10g | 复活死亡角色 |
+| build | `build <建筑类型>` | 20-35g | 建造掩体/农場/工坊等 |
+| trade | `trade <角色> <物品> <数量>` | 0g | 角色间物品交换 |
 | check | `check` | 0g | 查看所有状态 |
 | reset | `reset` | 0g | 重置游戏 |
 | !1 / !A | `!1` 或 `!A` | 0g | 投票选择第一选项 |
 | !2 / !B | `!2` 或 `!B` | 0g | 投票选择第二选项 |
-
-### AI 角色
-- **Jack** (勇敢) - 蓝色
-- **Luna** (狡猾) - 粉色
-- **Bob** (诚实) - 绿色
-
-每个角色有独特性格，会根据性格做出不同反应和社交行为。
-
-#### 角色属性
-| 属性 | 说明 |
-|------|------|
-| HP | 生命值，归零则死亡 |
-| 能量 | 行动力，过低会影响行动 |
-| 心情 | 情绪状态，影响社交和决策 |
-| 免疫力 | 抵抗疾病的能力 (0-100) |
-| 社交角色 | leader/follower/loner/neutral |
-| 当前行动 | Idle/Gather/Sleep/Socialize 等 |
-| 位置 | tree_left/tree_right/campfire/herb_patch 等 |
 
 ## 技术栈
 
@@ -194,6 +249,12 @@ VOTE_UPDATE         # 实时投票进度更新
 VOTE_ENDED          # 投票结束
 VOTE_RESULT         # 投票结果
 RESOLUTION_APPLIED  # 剧情决议执行
+
+# 建造与贸易 (Phase 23)
+BUILDING_STARTED    # 建造开始
+BUILDING_COMPLETED  # 建造完成
+GIVE_ITEM           # 物品交易/赠送
+GROUP_ACTIVITY      # 篝火故事等集体活动
 ```
 
 ## Twitch 直播集成
@@ -254,15 +315,27 @@ TWITCH_COMMAND_PREFIX=!
 ## 开发说明
 
 ### 添加新命令
-1. 在 `backend/app/schemas.py` 添加事件类型
-2. 在 `backend/app/engine.py` 添加命令处理逻辑
-3. 在 `unity-client/Assets/Scripts/Models.cs` 添加数据模型
-4. 在 `unity-client/Assets/Scripts/NetworkManager.cs` 添加事件处理
+1. 在 `backend/app/config.py` 添加命令正则和常量
+2. 在 `backend/app/command_handler.py` 添加命令处理逻辑
+3. 在 `backend/app/schemas.py` 添加新事件类型（如需要）
+4. 在 `unity-client/Assets/Scripts/Models.cs` 添加数据模型
+5. 在 `unity-client/Assets/Scripts/NetworkManager.cs` 添加事件处理
+
+### 运行测试
+```bash
+cd backend
+python -m pytest tests/ -v --cov=app
+```
 
 ### 调试
 - Unity 控制台查看日志
 - Web 调试客户端查看原始消息
 - 后端日志查看服务器状态
+
+### 后续规划
+- **Phase 22**：持久化升级（PostgreSQL + Redis）
+- **Phase 24**：多人增强（排行榜、团队任务）
+- **Phase 25**：运营工具（管理后台、数据分析面板）
 
 ## 许可证
 
