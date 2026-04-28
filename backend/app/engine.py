@@ -17,6 +17,7 @@ from .llm import llm_service
 from .memory_service import memory_service
 from .director_service import DirectorService, GameMode, PlotPoint
 from .vote_manager import VoteManager, VoteOption, VoteSnapshot
+from .command_handler import CommandHandler
 
 if TYPE_CHECKING:
     from .server import ConnectionManager
@@ -81,6 +82,13 @@ class GameEngine:
 
         # Set up vote broadcast callback
         self._vote_manager.set_broadcast_callback(self._on_vote_update)
+        self._command_handler = CommandHandler(
+            broadcast_callback=self._broadcast_event,
+            broadcast_vfx_callback=self._broadcast_vfx,
+            trigger_agent_speak_callback=self._trigger_agent_speak,
+            llm_service=llm_service,
+            memory_service=memory_service,
+        )
 
     @property
     def is_running(self) -> bool:
@@ -1693,41 +1701,7 @@ class GameEngine:
 
     async def process_comment(self, user: str, message: str) -> None:
         """Process a comment through command matching."""
-        await self._broadcast_event(EventType.COMMENT, {"user": user, "message": message})
-
-        # Match commands in priority order
-        if match := FEED_PATTERN.search(message):
-            await self._handle_feed(user, match.group(1))
-            return
-
-        if match := HEAL_PATTERN.search(message):
-            await self._handle_heal(user, match.group(1))
-            return
-
-        if match := TALK_PATTERN.search(message):
-            topic = match.group(2) or ""
-            await self._handle_talk(user, match.group(1), topic.strip())
-            return
-
-        if match := ENCOURAGE_PATTERN.search(message):
-            await self._handle_encourage(user, match.group(1))
-            return
-
-        if match := LOVE_PATTERN.search(message):
-            await self._handle_love(user, match.group(1))
-            return
-
-        if match := REVIVE_PATTERN.search(message):
-            await self._handle_revive(user, match.group(1))
-            return
-
-        if CHECK_PATTERN.search(message):
-            await self._handle_check(user)
-            return
-
-        if RESET_PATTERN.search(message):
-            await self._handle_reset(user)
-            return
+        await self._command_handler.handle(user, message)
 
     # =========================================================================
     # Random Events (Phase 17-C)
@@ -1930,9 +1904,8 @@ class GameEngine:
         logger.info("Game engine stopping...")
 
     async def process_command(self, user: str, text: str) -> None:
-        """Process a command from Twitch chat."""
-        # Use the existing process_comment method to handle commands
-        await self.process_comment(user, text)
+        """Process a command string directly (Unity UI)."""
+        await self._command_handler.handle(user, text)
 
     async def handle_gift(self, user: str, amount: int, gift_type: str = "bits") -> None:
         """
