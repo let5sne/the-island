@@ -1,356 +1,42 @@
-"""Main game loop and simulation subsystems for The Island."""
+"""Simulation systems for The Island - survival, social, activity, crafting."""
 
 import asyncio
 import json
 import logging
 import random
+from typing import Optional
 
 from .config import (
     TICK_INTERVAL, BASE_ENERGY_DECAY_PER_TICK, BASE_HP_DECAY_WHEN_STARVING,
-    FEED_COST, FEED_ENERGY_RESTORE, HEAL_COST, HEAL_HP_RESTORE,
-    ENCOURAGE_COST, ENCOURAGE_MOOD_BOOST, LOVE_COST, LOVE_MOOD_BOOST,
-    REVIVE_COST, INITIAL_USER_GOLD, IDLE_CHAT_PROBABILITY,
+    ENCOURAGE_MOOD_BOOST, LOVE_MOOD_BOOST,
+    INITIAL_USER_GOLD, IDLE_CHAT_PROBABILITY,
     DIRECTOR_TRIGGER_INTERVAL, DIRECTOR_MIN_ALIVE_AGENTS,
     TICKS_PER_DAY, DAY_PHASES, PHASE_MODIFIERS,
     WEATHER_TYPES, WEATHER_TRANSITIONS, WEATHER_MIN_DURATION, WEATHER_MAX_DURATION,
     SOCIAL_INTERACTIONS, INITIAL_AGENTS,
-    FEED_PATTERN, CHECK_PATTERN, RESET_PATTERN, HEAL_PATTERN,
-    TALK_PATTERN, ENCOURAGE_PATTERN, LOVE_PATTERN, REVIVE_PATTERN,
 )
 from .database import get_db_session
-from .models import User, Agent, WorldState, GameConfig, AgentRelationship
-from .schemas import GameEvent, EventType
-from .director_service import DirectorService, GameMode, PlotPoint
-from .vote_manager import VoteManager, VoteOption, VoteSnapshot
+from .models import Agent, WorldState, GameConfig, AgentRelationship
+from .schemas import EventType
 
 logger = logging.getLogger(__name__)
 
 RANDOM_EVENTS = {
-        "storm_damage": {"weight": 30, "description": "A sudden storm damages the island!"},
-        "treasure_found": {"weight": 25, "description": "Someone found a buried treasure!"},
-        "beast_attack": {"weight": 20, "description": "A wild beast attacks the camp!"},
-        "rumor_spread": {"weight": 25, "description": "A rumor starts spreading..."},
-    }
-
+    "storm_damage": {"weight": 30, "description": "A sudden storm damages the island!"},
+    "treasure_found": {"weight": 25, "description": "Someone found a buried treasure!"},
+    "beast_attack": {"weight": 20, "description": "A wild beast attacks the camp!"},
+    "rumor_spread": {"weight": 25, "description": "A rumor starts spreading..."},
+}
 
 class _AgentSnapshot:
     __slots__ = ("id", "name", "personality", "hp", "energy", "mood", "is_sheltered")
     def __init__(self, id, name, personality, hp, energy, mood, is_sheltered=False):
-        self.id = id
-        self.name = name
-        self.personality = personality
-        self.hp = hp
-        self.energy = energy
-        self.mood = mood
+        self.id = id; self.name = name; self.personality = personality
+        self.hp = hp; self.energy = energy; self.mood = mood
         self.is_sheltered = is_sheltered
 
-
-class GameLoop:
-    """Main game loop orchestrating survival, social, activity, and narrative systems."""
-
-async def _on_vote_update(self, snapshot: VoteSnapshot) -> None:
-
-    """Callback for broadcasting vote updates."""
-
-    await self._broadcast_event(EventType.VOTE_UPDATE, snapshot.to_dict())
-
-
-
-async def _set_game_mode(self, new_mode: GameMode, message: str = "") -> None:
-
-    """Switch game mode and broadcast the change."""
-
-    old_mode = self._game_mode
-
-    self._game_mode = new_mode
-
-    self._mode_change_tick = self._tick_count
-
-
-    ends_at = 0.0
-
-    if new_mode == GameMode.VOTING:
-
-        session = self._vote_manager.current_session
-
-        if session:
-
-            ends_at = session.end_ts
-
-
-    await self._broadcast_event(EventType.MODE_CHANGE, {
-
-        "mode": new_mode.value,
-
-        "old_mode": old_mode.value,
-
-        "message": message,
-
-        "ends_at": ends_at,
-
-    })
-
-
-    logger.info(f"Game mode changed: {old_mode.value} -> {new_mode.value}")
-
-
-
-def _get_world_state_for_director(self) -> dict:
-
-    """Build world state context for the Director."""
-
-    with get_db_session() as db:
-
-        world = db.query(WorldState).first()
-
-        agents = db.query(Agent).filter(Agent.status == "Alive").all()
-
-
-        alive_agents = [
-
-            {"name": a.name, "hp": a.hp, "energy": a.energy, "mood": a.mood}
-
-            for a in agents
-
-        ]
-
-
-        mood_avg = sum(a.mood for a in agents) / len(agents) if agents else 50
-
-
-        return {
-
-            "day": world.day_count if world else 1,
-
-            "weather": world.weather if world else "Sunny",
-
-            "time_of_day": world.time_of_day if world else "day",
-
-            "alive_agents": alive_agents,
-
-            "mood_avg": mood_avg,
-
-            "recent_events": [],  # Could be populated from event history
-
-            "tension_level": self._director.calculate_tension_level({
-
-                "alive_agents": alive_agents,
-
-                "weather": world.weather if world else "Sunny",
-
-                "mood_avg": mood_avg,
-
-            }),
-
-        }
-
-
-
-async def _should_trigger_narrative(self) -> bool:
-
-    """Check if conditions are met to trigger a narrative event."""
-
-    # Only trigger in simulation mode
-
-    if self._game_mode != GameMode.SIMULATION:
-
-        return False
-
-
-    # Check tick interval
-
-    ticks_since_last = self._tick_count - self._last_narrative_tick
-
-    if ticks_since_last < DIRECTOR_TRIGGER_INTERVAL:
-
-        return False
-
-
-    # Check minimum alive agents
-
-    with get_db_session() as db:
-
-        alive_count = db.query(Agent).filter(Agent.status == "Alive").count()
-
-        if alive_count < DIRECTOR_MIN_ALIVE_AGENTS:
-
-            return False
-
-
-    return True
-
-
-
-async def _trigger_narrative_event(self) -> None:
-
-    """Trigger a narrative event from the Director."""
-
-    logger.info("Director triggering narrative event...")
-
-
-    # Switch to narrative mode
-
-    await self._set_game_mode(GameMode.NARRATIVE, "The Director intervenes...")
-
-
-    # Generate plot point
-
-    world_state = self._get_world_state_for_director()
-
-    plot = await self._director.generate_plot_point(world_state)
-
-    self._current_plot = plot
-
-    self._last_narrative_tick = self._tick_count
-
-
-    # Broadcast narrative event
-
-    await self._broadcast_event(EventType.NARRATIVE_PLOT, plot.to_dict())
-
-
-    logger.info(f"Narrative event: {plot.title}")
-
-
-    # Start voting session
-
-    options = [
-
-        VoteOption(choice_id=c.choice_id, text=c.text)
-
-        for c in plot.choices
-
-    ]
-
-    self._vote_manager.start_vote(options, duration_seconds=VOTING_DURATION_SECONDS)
-
-
-    # Broadcast vote started
-
-    vote_data = self._vote_manager.get_vote_started_data()
-
-    if vote_data:
-
-        await self._broadcast_event(EventType.VOTE_STARTED, vote_data)
-
-
-    # Switch to voting mode
-
-    await self._set_game_mode(
-
-        GameMode.VOTING,
-
-        f"Vote now! {plot.choices[0].text} or {plot.choices[1].text}"
-
-    )
-
-
-
-async def _process_voting_tick(self) -> None:
-
-    """Process voting phase - check if voting has ended."""
-
-    if self._game_mode != GameMode.VOTING:
-
-        return
-
-
-    result = self._vote_manager.maybe_finalize()
-
-    if result:
-
-        # Voting ended
-
-        await self._broadcast_event(EventType.VOTE_ENDED, {
-
-            "vote_id": result.vote_id,
-
-            "total_votes": result.total_votes,
-
-        })
-
-        await self._broadcast_event(EventType.VOTE_RESULT, result.to_dict())
-
-
-        # Switch to resolution mode
-
-        await self._set_game_mode(
-
-            GameMode.RESOLUTION,
-
-            f"The audience has spoken: {result.winning_choice_text}"
-
-        )
-
-
-        # Process resolution
-
-        await self._process_vote_result(result)
-
-
-
-async def _process_vote_result(self, result) -> None:
-
-    """Process the voting result and apply consequences."""
-
-    if not self._current_plot:
-
-        logger.error("No current plot for resolution")
-
-        await self._set_game_mode(GameMode.SIMULATION, "Returning to normal...")
-
-        return
-
-
-    # Get resolution from Director
-
-    world_state = self._get_world_state_for_director()
-
-    resolution = await self._director.resolve_vote(
-
-        plot_point=self._current_plot,
-
-        winning_choice_id=result.winning_choice_id,
-
-        world_state=world_state,
-
-    )
-
-
-    # Apply effects
-
-    await self._apply_resolution_effects(resolution.effects)
-
-
-    # Broadcast resolution
-
-    await self._broadcast_event(EventType.RESOLUTION_APPLIED, resolution.to_dict())
-
-
-    logger.info(f"Resolution applied: {resolution.message}")
-
-
-    # Clear current plot
-
-    self._director.clear_current_plot()
-
-    self._current_plot = None
-
-
-    # Return to simulation after a brief pause
-
-    await asyncio.sleep(3.0)  # Let players read the resolution
-
-    await self._set_game_mode(GameMode.SIMULATION, "The story continues...")
-
-
-
-async def _apply_resolution_effects(self, effects: dict) -> None:
-
-    """Apply resolution effects to the game world."""
-
-
-async def _advance_time(self) -> Optional[dict]:
+# --- _advance_time ---
+async def _advance_time(eng) -> Optional[dict]:
 
     """Advance time and return phase change info if applicable."""
 
@@ -386,7 +72,7 @@ async def _advance_time(self) -> Optional[dict]:
 
             
 
-            await self._broadcast_event(EventType.DAY_CHANGE, {
+            await eng._broadcast_event(EventType.DAY_CHANGE, {
 
                 "day": world.day_count,
 
@@ -422,7 +108,8 @@ async def _advance_time(self) -> Optional[dict]:
 # =========================================================================
 
 
-async def _update_weather(self) -> Optional[dict]:
+# --- _update_weather ---
+async def _update_weather(eng) -> Optional[dict]:
 
     """Update weather based on transition probabilities."""
 
@@ -470,7 +157,8 @@ async def _update_weather(self) -> Optional[dict]:
 
 
 
-async def _update_moods(self) -> None:
+# --- _update_moods ---
+async def _update_moods(eng) -> None:
 
     """Update agent moods based on weather and time."""
 
@@ -525,7 +213,8 @@ async def _update_moods(self) -> None:
 # =========================================================================
 
 
-async def _assign_social_roles(self) -> None:
+# --- _assign_social_roles ---
+async def _assign_social_roles(eng) -> None:
 
     """Assign social roles based on personality and social tendency."""
 
@@ -561,13 +250,14 @@ async def _assign_social_roles(self) -> None:
 
 
 
-async def _process_clique_behavior(self) -> None:
+# --- _process_clique_behavior ---
+async def _process_clique_behavior(eng) -> None:
 
     """Leaders influence followers' actions."""
 
     # Run occasionally
 
-    if self._tick_count % 10 != 0:
+    if eng._tick_count % 10 != 0:
 
         return
 
@@ -607,7 +297,7 @@ async def _process_clique_behavior(self) -> None:
 
                     follower.location = leader.location
 
-                    await self._broadcast_event(EventType.COMMENT, {
+                    await eng._broadcast_event(EventType.COMMENT, {
 
                         "user": "System",
 
@@ -623,11 +313,12 @@ async def _process_clique_behavior(self) -> None:
 # =========================================================================
 
 
-async def _process_survival_tick(self) -> None:
+# --- _process_survival_tick ---
+async def _process_survival_tick(eng) -> None:
 
     """Process survival mechanics with difficulty modifiers."""
 
-    config = self._get_config()
+    config = eng._get_config()
 
     deaths = []
 
@@ -702,7 +393,7 @@ async def _process_survival_tick(self) -> None:
 
                     # Just log it or maybe a system message?
 
-                    await self._broadcast_event(EventType.COMMENT, {
+                    await eng._broadcast_event(EventType.COMMENT, {
 
                         "user": "System", 
 
@@ -725,7 +416,7 @@ async def _process_survival_tick(self) -> None:
 
                 # Lower mood over time
 
-                if self._tick_count % 5 == 0:
+                if eng._tick_count % 5 == 0:
 
                     agent.mood = max(0, agent.mood - 1)
 
@@ -783,7 +474,7 @@ async def _process_survival_tick(self) -> None:
 
                 agent.status = "Dead"
 
-                agent.death_tick = self._tick_count
+                agent.death_tick = eng._tick_count
 
                 if agent.is_sick:
 
@@ -800,7 +491,7 @@ async def _process_survival_tick(self) -> None:
 
     for death in deaths:
 
-        await self._broadcast_event(EventType.AGENT_DIED, {
+        await eng._broadcast_event(EventType.AGENT_DIED, {
 
             "agent_name": death["name"],
 
@@ -834,11 +525,12 @@ async def _process_survival_tick(self) -> None:
 
 
 
-async def _process_auto_revive(self) -> None:
+# --- _process_auto_revive ---
+async def _process_auto_revive(eng) -> None:
 
     """Auto-revive dead agents in casual mode."""
 
-    config = self._get_config()
+    config = eng._get_config()
 
     if not config.auto_revive_enabled:
 
@@ -857,7 +549,7 @@ async def _process_auto_revive(self) -> None:
                 continue
 
 
-            ticks_dead = self._tick_count - agent.death_tick
+            ticks_dead = eng._tick_count - agent.death_tick
 
             if ticks_dead >= config.auto_revive_delay_ticks:
 
@@ -874,7 +566,7 @@ async def _process_auto_revive(self) -> None:
                 agent.death_tick = None
 
 
-                await self._broadcast_event(EventType.AUTO_REVIVE, {
+                await eng._broadcast_event(EventType.AUTO_REVIVE, {
 
                     "agent_name": agent.name,
 
@@ -892,11 +584,12 @@ async def _process_auto_revive(self) -> None:
 # =========================================================================
 
 
-async def _process_social_tick(self) -> None:
+# --- _process_social_tick ---
+async def _process_social_tick(eng) -> None:
 
     """Process autonomous social interactions between agents."""
 
-    config = self._get_config()
+    config = eng._get_config()
 
     if random.random() > config.social_interaction_probability:
 
@@ -973,7 +666,7 @@ async def _process_social_tick(self) -> None:
 
         # Determine interaction type
 
-        interaction_type = self._select_interaction(initiator, target, relationship)
+        interaction_type = eng._select_interaction(initiator, target, relationship)
 
         if not interaction_type:
 
@@ -995,7 +688,7 @@ async def _process_social_tick(self) -> None:
 
         relationship.interaction_count += 1
 
-        relationship.last_interaction_tick = self._tick_count
+        relationship.last_interaction_tick = eng._tick_count
 
         relationship.update_relationship_type()
 
@@ -1027,7 +720,7 @@ async def _process_social_tick(self) -> None:
 
     # Generate LLM dialogue for interaction
 
-    asyncio.create_task(self._trigger_social_dialogue(
+    asyncio.create_task(eng._trigger_social_dialogue(
 
         interaction_data, weather, time_of_day
 
@@ -1035,7 +728,8 @@ async def _process_social_tick(self) -> None:
 
 
 
-def _select_interaction(self, initiator: Agent, target: Agent, relationship: AgentRelationship) -> Optional[str]:
+# --- _select_interaction ---
+def _select_interaction(eng, initiator: Agent, target: Agent, relationship: AgentRelationship) -> Optional[str]:
 
     """Select appropriate interaction type based on conditions."""
 
@@ -1075,7 +769,8 @@ def _select_interaction(self, initiator: Agent, target: Agent, relationship: Age
 
 
 
-async def _trigger_social_dialogue(self, interaction_data: dict, weather: str, time_of_day: str) -> None:
+# --- _trigger_social_dialogue ---
+async def _trigger_social_dialogue(eng, interaction_data: dict, weather: str, time_of_day: str) -> None:
 
     """Generate and broadcast social interaction dialogue."""
 
@@ -1098,7 +793,7 @@ async def _trigger_social_dialogue(self, interaction_data: dict, weather: str, t
         )
 
 
-        await self._broadcast_event(EventType.SOCIAL_INTERACTION, {
+        await eng._broadcast_event(EventType.SOCIAL_INTERACTION, {
 
             **interaction_data,
 
@@ -1126,7 +821,7 @@ async def _trigger_social_dialogue(self, interaction_data: dict, weather: str, t
 
         if should_continue:
 
-            self._active_conversations[target_id] = {
+            eng._active_conversations[target_id] = {
 
                 "partner_id": initiator_id,
 
@@ -1134,7 +829,7 @@ async def _trigger_social_dialogue(self, interaction_data: dict, weather: str, t
 
                 "topic": interaction_data["interaction_type"], # Rough topic
 
-                "expires_at_tick": self._tick_count + 5 # Must respond within 5 ticks
+                "expires_at_tick": eng._tick_count + 5 # Must respond within 5 ticks
 
             }
 
@@ -1151,7 +846,8 @@ async def _trigger_social_dialogue(self, interaction_data: dict, weather: str, t
 # =========================================================================
 
 
-async def _process_altruism_tick(self) -> None:
+# --- _process_altruism_tick ---
+async def _process_altruism_tick(eng) -> None:
 
     """Process altruistic item sharing based on need."""
 
@@ -1171,7 +867,7 @@ async def _process_altruism_tick(self) -> None:
 
         for giver in agents:
 
-            giver_inv = self._get_inventory(giver)
+            giver_inv = eng._get_inventory(giver)
 
             
 
@@ -1206,7 +902,7 @@ async def _process_altruism_tick(self) -> None:
 
                 
 
-                cand_inv = self._get_inventory(candidate)
+                cand_inv = eng._get_inventory(candidate)
 
                 score = 0
 
@@ -1254,13 +950,13 @@ async def _process_altruism_tick(self) -> None:
 
                      giver_inv[item_to_give] -= 1
 
-                     self._set_inventory(giver, giver_inv)
+                     eng._set_inventory(giver, giver_inv)
 
                      
 
                      cand_inv[item_to_give] = cand_inv.get(item_to_give, 0) + 1
 
-                     self._set_inventory(candidate, cand_inv)
+                     eng._set_inventory(candidate, cand_inv)
 
                      
 
@@ -1309,7 +1005,7 @@ async def _process_altruism_tick(self) -> None:
 
                      # Broadcast
 
-                     await self._broadcast_event(EventType.GIVE_ITEM, {
+                     await eng._broadcast_event(EventType.GIVE_ITEM, {
 
                          "from_id": giver.id,
 
@@ -1330,13 +1026,14 @@ async def _process_altruism_tick(self) -> None:
                      break
 
 
-async def _process_activity_tick(self) -> None:
+# --- _process_activity_tick ---
+async def _process_activity_tick(eng) -> None:
 
     """Decide and execute autonomous agent actions."""
 
     # Only process activity every few ticks to avoid chaotic movement
 
-    if self._tick_count % 3 != 0:
+    if eng._tick_count % 3 != 0:
 
         return
 
@@ -1367,15 +1064,15 @@ async def _process_activity_tick(self) -> None:
 
             # Phase 22: Handle Pending Conversations (High Priority)
 
-            if agent.id in self._active_conversations:
+            if agent.id in eng._active_conversations:
 
-                 pending = self._active_conversations[agent.id]
+                 pending = eng._active_conversations[agent.id]
 
                  # Check expiry
 
-                 if self._tick_count > pending["expires_at_tick"]:
+                 if eng._tick_count > pending["expires_at_tick"]:
 
-                     del self._active_conversations[agent.id]
+                     del eng._active_conversations[agent.id]
 
                  else:
 
@@ -1403,7 +1100,7 @@ async def _process_activity_tick(self) -> None:
 
                          previous_text = pending["last_text"]
 
-                         del self._active_conversations[agent.id]
+                         del eng._active_conversations[agent.id]
 
                          
 
@@ -1416,7 +1113,7 @@ async def _process_activity_tick(self) -> None:
 
                          # Extract values before async task (avoid detached session issues)
 
-                         asyncio.create_task(self._process_conversation_reply(
+                         asyncio.create_task(eng._process_conversation_reply(
 
                              agent.id, agent.name, partner.id, partner.name,
 
@@ -1426,7 +1123,7 @@ async def _process_activity_tick(self) -> None:
 
                      else:
 
-                         del self._active_conversations[agent.id] 
+                         del eng._active_conversations[agent.id] 
 
 
             # 1. Critical Needs (Override everything)
@@ -1471,13 +1168,13 @@ async def _process_activity_tick(self) -> None:
 
             elif agent.is_sick:
 
-                inv = self._get_inventory(agent)
+                inv = eng._get_inventory(agent)
 
                 if inv.get("medicine", 0) > 0:
 
                     # Use medicine immediately
 
-                    await self._use_medicine(agent)
+                    await eng._use_medicine(agent)
 
                     new_action = "Use Medicine"
 
@@ -1489,7 +1186,7 @@ async def _process_activity_tick(self) -> None:
 
                     # Craft medicine
 
-                    await self._craft_medicine(agent)
+                    await eng._craft_medicine(agent)
 
                     new_action = "Craft Medicine"
 
@@ -1537,7 +1234,7 @@ async def _process_activity_tick(self) -> None:
 
             elif agent.current_action not in ["Sleep", "Gather", "Dance", "Follow"] and random.random() < 0.15:
 
-                target = self._find_follow_target(db, agent)
+                target = eng._find_follow_target(db, agent)
 
                 if target:
 
@@ -1596,7 +1293,7 @@ async def _process_activity_tick(self) -> None:
 
                 if random.random() < 0.5:
 
-                    await self._process_altruism_tick()
+                    await eng._process_altruism_tick()
 
                 elif random.random() < 0.1:
 
@@ -1620,7 +1317,7 @@ async def _process_activity_tick(self) -> None:
 
                 # Phase 17-A: Consume fruit when gathering
 
-                fruit_available = await self._consume_fruit(world, agent.location)
+                fruit_available = await eng._consume_fruit(world, agent.location)
 
                 if fruit_available:
 
@@ -1658,7 +1355,7 @@ async def _process_activity_tick(self) -> None:
 
                         should_update = True
 
-                        await self._broadcast_event(EventType.COMMENT, {
+                        await eng._broadcast_event(EventType.COMMENT, {
 
                             "user": "System",
 
@@ -1678,7 +1375,7 @@ async def _process_activity_tick(self) -> None:
 
                 # Simulate herb gathering (add herbs)
 
-                await self._gather_herb(agent)
+                await eng._gather_herb(agent)
 
                 new_action = "Idle"
 
@@ -1699,10 +1396,10 @@ async def _process_activity_tick(self) -> None:
 
                 # Generate simple thought/bark
 
-                dialogue = self._get_action_bark(agent, new_action, target_name)
+                dialogue = eng._get_action_bark(agent, new_action, target_name)
 
 
-                await self._broadcast_event(EventType.AGENT_ACTION, {
+                await eng._broadcast_event(EventType.AGENT_ACTION, {
 
                     "agent_id": agent.id,
 
@@ -1720,7 +1417,8 @@ async def _process_activity_tick(self) -> None:
 
 
 
-def _get_action_bark(self, agent: Agent, action: str, target: str = None) -> str:
+# --- _get_action_bark ---
+def _get_action_bark(eng, agent: Agent, action: str, target: str = None) -> str:
 
     """Get a simple bark text for an action."""
 
@@ -1768,7 +1466,8 @@ def _get_action_bark(self, agent: Agent, action: str, target: str = None) -> str
 
 
 
-def _find_follow_target(self, db, agent: Agent) -> Optional[Agent]:
+# --- _find_follow_target ---
+def _find_follow_target(eng, db, agent: Agent) -> Optional[Agent]:
 
     """Find a suitable target to follow (Leader or Friend)."""
 
@@ -1823,7 +1522,8 @@ def _find_follow_target(self, db, agent: Agent) -> Optional[Agent]:
 # =========================================================================
 
 
-def _get_inventory(self, agent: Agent) -> dict:
+# --- _get_inventory ---
+def _get_inventory(eng, agent: Agent) -> dict:
 
     """Parse agent inventory JSON."""
 
@@ -1839,7 +1539,8 @@ def _get_inventory(self, agent: Agent) -> dict:
 
 
 
-def _set_inventory(self, agent: Agent, inv: dict) -> None:
+# --- _set_inventory ---
+def _set_inventory(eng, agent: Agent, inv: dict) -> None:
 
     """Set agent inventory from dict."""
 
@@ -1849,7 +1550,8 @@ def _set_inventory(self, agent: Agent, inv: dict) -> None:
 
 
 
-async def _consume_fruit(self, world: WorldState, location: str) -> bool:
+# --- _consume_fruit ---
+async def _consume_fruit(eng, world: WorldState, location: str) -> bool:
 
     """Consume fruit from a tree. Returns True if successful."""
 
@@ -1877,21 +1579,22 @@ async def _consume_fruit(self, world: WorldState, location: str) -> bool:
 
 
 
-async def _gather_herb(self, agent: Agent) -> None:
+# --- _gather_herb ---
+async def _gather_herb(eng, agent: Agent) -> None:
 
     """Agent gathers herbs."""
 
-    inv = self._get_inventory(agent)
+    inv = eng._get_inventory(agent)
 
     herbs_found = random.randint(1, 2)
 
     inv["herb"] = inv.get("herb", 0) + herbs_found
 
-    self._set_inventory(agent, inv)
+    eng._set_inventory(agent, inv)
 
     
 
-    await self._broadcast_event(EventType.AGENT_ACTION, {
+    await eng._broadcast_event(EventType.AGENT_ACTION, {
 
         "agent_id": agent.id,
 
@@ -1909,11 +1612,12 @@ async def _gather_herb(self, agent: Agent) -> None:
 
 
 
-async def _craft_medicine(self, agent: Agent) -> None:
+# --- _craft_medicine ---
+async def _craft_medicine(eng, agent: Agent) -> None:
 
     """Agent crafts medicine from herbs."""
 
-    inv = self._get_inventory(agent)
+    inv = eng._get_inventory(agent)
 
     if inv.get("herb", 0) >= 3:
 
@@ -1921,11 +1625,11 @@ async def _craft_medicine(self, agent: Agent) -> None:
 
         inv["medicine"] = inv.get("medicine", 0) + 1
 
-        self._set_inventory(agent, inv)
+        eng._set_inventory(agent, inv)
 
         
 
-        await self._broadcast_event(EventType.CRAFT, {
+        await eng._broadcast_event(EventType.CRAFT, {
 
             "agent_id": agent.id,
 
@@ -1941,17 +1645,18 @@ async def _craft_medicine(self, agent: Agent) -> None:
 
 
 
-async def _use_medicine(self, agent: Agent) -> None:
+# --- _use_medicine ---
+async def _use_medicine(eng, agent: Agent) -> None:
 
     """Agent uses medicine to cure sickness."""
 
-    inv = self._get_inventory(agent)
+    inv = eng._get_inventory(agent)
 
     if inv.get("medicine", 0) > 0:
 
         inv["medicine"] -= 1
 
-        self._set_inventory(agent, inv)
+        eng._set_inventory(agent, inv)
 
         
 
@@ -1963,7 +1668,7 @@ async def _use_medicine(self, agent: Agent) -> None:
 
         
 
-        await self._broadcast_event(EventType.USE_ITEM, {
+        await eng._broadcast_event(EventType.USE_ITEM, {
 
             "agent_id": agent.id,
 
@@ -1985,7 +1690,8 @@ async def _use_medicine(self, agent: Agent) -> None:
 # =========================================================================
 
 
-async def _process_campfire_gathering(self) -> None:
+# --- _process_campfire_gathering ---
+async def _process_campfire_gathering(eng) -> None:
 
     """Encourage agents to gather at campfire at night."""
 
@@ -2001,7 +1707,7 @@ async def _process_campfire_gathering(self) -> None:
 
         # Only run check occasionally to avoid spamming decision logic every tick if not needed
 
-        if self._tick_count % 5 != 0:
+        if eng._tick_count % 5 != 0:
 
             return
 
@@ -2056,7 +1762,8 @@ async def _process_campfire_gathering(self) -> None:
 
 
 
-async def _process_group_activity(self) -> None:
+# --- _process_group_activity ---
+async def _process_group_activity(eng) -> None:
 
     """Trigger storytelling if enough agents are at the campfire."""
 
@@ -2120,7 +1827,7 @@ async def _process_group_activity(self) -> None:
 
         # Broadcast Event
 
-        await self._broadcast_event(EventType.GROUP_ACTIVITY, {
+        await eng._broadcast_event(EventType.GROUP_ACTIVITY, {
 
             "activity_type": "storytelling",
 
@@ -2154,539 +1861,125 @@ async def _process_group_activity(self) -> None:
 # =========================================================================
 
 
-async def _handle_feed(self, username: str, agent_name: str) -> None:
+# --- _trigger_agent_speak ---
+async def _trigger_agent_speak(
 
-    """Handle feed command."""
+    self, agent_id: int, agent_name: str, agent_personality: str,
 
-    feed_result = None
+    agent_hp: int, agent_energy: int, agent_mood: int,
 
+    event_description: str, event_type: str = "feed"
 
-    with get_db_session() as db:
+) -> None:
 
-        user = self._get_or_create_user(db, username)
-
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
-
-
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
-
-
-        if agent.status != "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
-
-            return
-
-
-        if user.gold < FEED_COST:
-
-            await self._broadcast_event(EventType.ERROR, {
-
-                "user": username, "message": f"Not enough gold! Need {FEED_COST}, have {user.gold}"
-
-            })
-
-            return
-
-
-        user.gold -= FEED_COST
-
-        old_energy = agent.energy
-
-        agent.energy = min(100, agent.energy + FEED_ENERGY_RESTORE)
-
-        agent.mood = min(100, agent.mood + 5)
-
-
-        feed_result = {
-
-            "agent_id": agent.id, "agent_name": agent.name,
-
-            "agent_personality": agent.personality, "agent_hp": agent.hp,
-
-            "agent_energy": agent.energy, "agent_mood": agent.mood,
-
-            "actual_restore": agent.energy - old_energy, "user_gold": user.gold
-
-        }
-
-
-    if feed_result:
-
-        await self._broadcast_event(EventType.FEED, {
-
-            "user": username, "agent_name": feed_result['agent_name'],
-
-            "energy_restored": feed_result['actual_restore'],
-
-            "agent_energy": feed_result['agent_energy'], "user_gold": feed_result['user_gold'],
-
-            "message": f"{username} fed {feed_result['agent_name']}!"
-
-        })
-
-        await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": feed_result["user_gold"]})
-
-
-        # VFX: Food Cloud
-
-        await self._broadcast_vfx("food", feed_result["agent_id"], "")
-
-
-        asyncio.create_task(self._trigger_agent_speak(
-
-            feed_result["agent_id"], feed_result["agent_name"],
-
-            feed_result["agent_personality"], feed_result["agent_hp"],
-
-            feed_result["agent_energy"], feed_result["agent_mood"],
-
-            f"User {username} gave you food!", "feed"
-
-        ))
-
-
-
-async def _handle_heal(self, username: str, agent_name: str) -> None:
-
-    """Handle heal command."""
-
-    with get_db_session() as db:
-
-        user = self._get_or_create_user(db, username)
-
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
-
-
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
-
-
-        if agent.status != "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
-
-            return
-
-
-        if user.gold < HEAL_COST:
-
-            await self._broadcast_event(EventType.ERROR, {
-
-                "user": username, "message": f"Not enough gold! Need {HEAL_COST}, have {user.gold}"
-
-            })
-
-            return
-
-
-        user.gold -= HEAL_COST
-
-        old_hp = agent.hp
-
-        was_sick = agent.is_sick
-
-        
-
-        agent.hp = min(100, agent.hp + HEAL_HP_RESTORE)
-
-        agent.is_sick = False # Cure sickness
-
-
-        msg = f"{username} healed {agent.name}!"
-
-        if was_sick:
-
-            msg = f"{username} cured {agent.name}'s sickness!"
-
-
-        await self._broadcast_event(EventType.HEAL, {
-
-            "user": username, "agent_name": agent.name,
-
-            "hp_restored": agent.hp - old_hp, "agent_hp": agent.hp,
-
-            "user_gold": user.gold, "message": msg
-
-        })
-
-        await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
-
-
-        asyncio.create_task(self._trigger_agent_speak(
-
-            agent.id, agent.name, agent.personality, agent.hp, agent.energy, agent.mood,
-
-            f"User {username} healed you!", "heal"
-
-        ))
-
-
-
-async def _handle_encourage(self, username: str, agent_name: str) -> None:
-
-    """Handle encourage command."""
-
-    with get_db_session() as db:
-
-        user = self._get_or_create_user(db, username)
-
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
-
-
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
-
-
-        if agent.status != "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
-
-            return
-
-
-        if user.gold < ENCOURAGE_COST:
-
-            await self._broadcast_event(EventType.ERROR, {
-
-                "user": username, "message": f"Not enough gold! Need {ENCOURAGE_COST}, have {user.gold}"
-
-            })
-
-            return
-
-
-        user.gold -= ENCOURAGE_COST
-
-        old_mood = agent.mood
-
-        agent.mood = min(100, agent.mood + ENCOURAGE_MOOD_BOOST)
-
-
-        await self._broadcast_event(EventType.ENCOURAGE, {
-
-            "user": username, "agent_name": agent.name,
-
-            "mood_boost": agent.mood - old_mood, "agent_mood": agent.mood,
-
-            "user_gold": user.gold, "message": f"{username} encouraged {agent.name}!"
-
-        })
-
-        await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
-
-
-        asyncio.create_task(self._trigger_agent_speak(
-
-            agent.id, agent.name, agent.personality, agent.hp, agent.energy, agent.mood,
-
-            f"User {username} encouraged you!", "encourage"
-
-        ))
-
-
-
-async def _handle_love(self, username: str, agent_name: str) -> None:
-
-    """Handle love command (hearts)."""
-
-    with get_db_session() as db:
-
-        user = self._get_or_create_user(db, username)
-
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
-
-
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
-
-
-        if agent.status != "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
-
-            return
-
-
-        if user.gold < LOVE_COST:
-
-            await self._broadcast_event(EventType.ERROR, {
-
-                "user": username, "message": f"Not enough gold! Need {LOVE_COST}, have {user.gold}"
-
-            })
-
-            return
-
-
-        user.gold -= LOVE_COST
-
-        old_mood = agent.mood
-
-        agent.mood = min(100, agent.mood + LOVE_MOOD_BOOST)
-
-        
-
-        # Update relationship (Phase 5 integration: could add affection)
-
-        # For now just simple mood boost and FX
-
-
-        await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
-
-
-        # VFX: Hearts
-
-        await self._broadcast_vfx("heart", agent.id, f"{username} sends love to {agent.name}!")
-
-        
-
-        asyncio.create_task(self._trigger_agent_speak(
-
-            agent.id, agent.name, agent.personality, agent.hp, agent.energy, agent.mood,
-
-            f"User {username} sent you love!", "love"
-
-        ))
-
-
-
-async def _handle_talk(self, username: str, agent_name: str, topic: str = "") -> None:
-
-    """Handle talk command - free conversation with agent."""
-
-    with get_db_session() as db:
-
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
-
-
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
-
-
-        if agent.status != "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is dead"})
-
-            return
-
-
-        agent_data = {
-
-            "id": agent.id, "name": agent.name, "personality": agent.personality,
-
-            "hp": agent.hp, "energy": agent.energy, "mood": agent.mood
-
-        }
-
-
-    # Generate conversation response
+    """Fire-and-forget LLM call to generate agent speech."""
 
     try:
 
-        response = await llm_service.generate_conversation_response(
+        agent_snapshot = _AgentSnapshot(
 
-            agent_name=agent_data["name"],
-
-            agent_personality=agent_data["personality"],
-
-            agent_mood=agent_data["mood"],
-
-            username=username,
-
-            topic=topic or "just chatting"
+            agent_id, agent_name, agent_personality, agent_hp, agent_energy, agent_mood
 
         )
 
 
-        await self._broadcast_event(EventType.TALK, {
+        text = await llm_service.generate_reaction(agent_snapshot, event_description, event_type)
 
-            "user": username, "agent_name": agent_data["name"],
 
-            "topic": topic, "response": response
+        await eng._broadcast_event(EventType.AGENT_SPEAK, {
+
+            "agent_id": agent_id,
+
+            "agent_name": agent_name,
+
+            "text": text
 
         })
 
 
     except Exception as e:
 
-        logger.error(f"Error in talk: {e}")
+        logger.error(f"Error in agent speak: {e}")
 
 
 
-async def _handle_revive(self, username: str, agent_name: str) -> None:
+# --- _trigger_idle_chat ---
+async def _trigger_idle_chat(eng) -> None:
 
-    """Handle revive command (casual mode)."""
-
-    config = self._get_config()
-
+    """Randomly select an alive agent to say something."""
 
     with get_db_session() as db:
 
-        user = self._get_or_create_user(db, username)
+        alive_agents = db.query(Agent).filter(Agent.status == "Alive").all()
 
-        agent = db.query(Agent).filter(Agent.name.ilike(agent_name)).first()
+        world = db.query(WorldState).first()
 
+        weather = world.weather if world else "Sunny"
 
-        if agent is None:
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"Agent '{agent_name}' not found"})
-
-            return
+        time_of_day = world.time_of_day if world else "day"
 
 
-        if agent.status == "Alive":
-
-            await self._broadcast_event(EventType.ERROR, {"message": f"{agent.name} is already alive!"})
+        if not alive_agents:
 
             return
 
 
-        if user.gold < REVIVE_COST:
+        agent = random.choice(alive_agents)
 
-            await self._broadcast_event(EventType.ERROR, {
+        agent_data = {
 
-                "user": username, "message": f"Not enough gold! Need {REVIVE_COST}, have {user.gold}"
+            "id": agent.id, "name": agent.name, "personality": agent.personality,
 
-            })
+            "hp": agent.hp, "energy": agent.energy, "mood": agent.mood,
 
-            return
+            "mood_state": agent.mood_state, "is_sheltered": agent.is_sheltered
 
-
-        user.gold -= REVIVE_COST
-
-        agent.status = "Alive"
-
-        agent.hp = config.revive_hp
-
-        agent.energy = config.revive_energy
-
-        agent.mood = 50
-
-        agent.mood_state = "neutral"
-
-        agent.death_tick = None
+        }
 
 
-        await self._broadcast_event(EventType.REVIVE, {
+    try:
 
-            "user": username, "agent_name": agent.name,
+        agent_snapshot = _AgentSnapshot(
 
-            "user_gold": user.gold, "message": f"{username} revived {agent.name}!"
+            agent_data["id"], agent_data["name"], agent_data["personality"],
+
+            agent_data["hp"], agent_data["energy"], agent_data["mood"],
+
+            agent_data.get("is_sheltered", False)
+
+        )
+
+
+        text = await llm_service.generate_idle_chat(agent_snapshot, weather, time_of_day)
+
+
+        await eng._broadcast_event(EventType.AGENT_SPEAK, {
+
+            "agent_id": agent_data["id"],
+
+            "agent_name": agent_data["name"],
+
+            "text": text
 
         })
 
-        await self._broadcast_event(EventType.USER_UPDATE, {"user": username, "gold": user.gold})
+
+    except Exception as e:
+
+        logger.error(f"Error in idle chat: {e}")
 
 
-
-async def _handle_check(self, username: str) -> None:
-
-    """Handle check/status command."""
-
-    with get_db_session() as db:
-
-        user = self._get_or_create_user(db, username)
-
-        agents = db.query(Agent).all()
-
-        world = db.query(WorldState).first()
-
-        config = db.query(GameConfig).first()
+# =========================================================================
 
 
-        user_data = {"username": user.username, "gold": user.gold}
-
-        agents_data = [agent.to_dict() for agent in agents]
-
-        world_data = world.to_dict() if world else {}
-
-        config_data = config.to_dict() if config else {}
-
-
-    await self._broadcast_event(EventType.CHECK, {
-
-        "user": user_data, "agents": agents_data,
-
-        "world": world_data, "config": config_data,
-
-        "message": f"{username}'s status - Gold: {user_data['gold']}"
-
-    })
-
-
-
-async def _handle_reset(self, username: str) -> None:
-
-    """Handle reset command - reset all agents."""
-
-    with get_db_session() as db:
-
-        agents = db.query(Agent).all()
-
-        for agent in agents:
-
-            agent.hp = 100
-
-            agent.energy = 100
-
-            agent.mood = 70
-
-            agent.mood_state = "neutral"
-
-            agent.status = "Alive"
-
-            agent.death_tick = None
-
-
-        world = db.query(WorldState).first()
-
-        if world:
-
-            world.day_count = 1
-
-            world.current_tick_in_day = 0
-
-            world.time_of_day = "day"
-
-            world.weather = "Sunny"
-
-            world.weather_duration = 0
-
-
-    await self._broadcast_event(EventType.SYSTEM, {
-
-        "message": f"{username} triggered a restart! All survivors have been revived."
-
-    })
-
-    await self._broadcast_agents_status()
-
-
-
-async def _process_random_events(self) -> None:
+# --- _process_random_events ---
+async def _process_random_events(eng) -> None:
 
     """Process random events (10% chance per day at dawn)."""
 
     # Only trigger at dawn (once per day)
 
-    if self._tick_count % 100 != 1:  # Roughly once every ~100 ticks
+    if eng._tick_count % 100 != 1:  # Roughly once every ~100 ticks
 
         return
 
@@ -2699,9 +1992,9 @@ async def _process_random_events(self) -> None:
 
     # Pick random event
 
-    events = list(self.RANDOM_EVENTS.keys())
+    events = list(eng.RANDOM_EVENTS.keys())
 
-    weights = [self.RANDOM_EVENTS[e]["weight"] for e in events]
+    weights = [eng.RANDOM_EVENTS[e]["weight"] for e in events]
 
     event_type = random.choices(events, weights=weights)[0]
 
@@ -2745,13 +2038,13 @@ async def _process_random_events(self) -> None:
 
             lucky = random.choice(agents)
 
-            inv = self._get_inventory(lucky)
+            inv = eng._get_inventory(lucky)
 
             inv["medicine"] = inv.get("medicine", 0) + 2
 
             inv["herb"] = inv.get("herb", 0) + 3
 
-            self._set_inventory(lucky, inv)
+            eng._set_inventory(lucky, inv)
 
             event_data["message"] = f"{lucky.name} found a buried treasure with medicine and herbs!"
 
@@ -2788,7 +2081,7 @@ async def _process_random_events(self) -> None:
                 event_data["message"] = f"A rumor about {a1.name} and {a2.name} is spreading..."
 
 
-        await self._broadcast_event(EventType.RANDOM_EVENT, event_data)
+        await eng._broadcast_event(EventType.RANDOM_EVENT, event_data)
 
         logger.info(f"Random event triggered: {event_type}")
 
@@ -2800,189 +2093,7 @@ async def _process_random_events(self) -> None:
 # =========================================================================
 
 
-async def _game_loop(self) -> None:
-
-    """The main game loop with all systems."""
-
-    logger.info("Game loop started - The Island awaits...")
-
-    await self._broadcast_agents_status()
-
-    await self._broadcast_world_status()
-
-
-    while self._running:
-
-        self._tick_count += 1
-
-
-        # Phase 9: Check voting phase (always runs)
-
-        await self._process_voting_tick()
-
-
-        # Phase 9: Check if we should trigger a narrative event
-
-        if await self._should_trigger_narrative():
-
-            await self._trigger_narrative_event()
-
-
-        # Skip simulation processing during narrative/voting/resolution modes
-
-        if self._game_mode != GameMode.SIMULATION:
-
-            await asyncio.sleep(self._tick_interval)
-
-            continue
-
-
-        # ========== SIMULATION MODE PROCESSING ==========
-
-
-        # 1. Advance time (Phase 2)
-
-        phase_change = await self._advance_time()
-
-        if phase_change:
-
-            await self._broadcast_event(EventType.PHASE_CHANGE, {
-
-                "old_phase": phase_change["old_phase"],
-
-                "new_phase": phase_change["new_phase"],
-
-                "day": phase_change["day"],
-
-                "message": f"The {phase_change['new_phase']} begins..."
-
-            })
-
-
-        # 2. Update weather (Phase 3)
-
-        weather_change = await self._update_weather()
-
-        if weather_change:
-
-            await self._broadcast_event(EventType.WEATHER_CHANGE, {
-
-                "old_weather": weather_change["old_weather"],
-
-                "new_weather": weather_change["new_weather"],
-
-                "message": f"Weather changed to {weather_change['new_weather']}"
-
-            })
-
-
-        # 3. Process survival (with difficulty modifiers)
-
-        await self._process_survival_tick()
-
-
-        # 4. Auto-revive check (casual mode)
-
-        await self._process_auto_revive()
-
-
-        # 5. Update moods (Phase 3)
-
-        await self._update_moods()
-
-
-        # Phase 24: Group Activities
-
-        # Check for campfire time (Night)
-
-        await self._process_campfire_gathering()
-
-        # Check for storytelling events
-
-        await self._process_group_activity()
-
-
-        # 6. Autonomous Activity (Phase 13)
-
-        await self._process_activity_tick()
-
-
-        # 7. Social interactions (Phase 5)
-
-        await self._process_social_tick()
-
-
-        # Phase 23: Altruism (Item Exchange)
-
-        await self._process_altruism_tick()
-
-
-        # 8. Random Events (Phase 17-C)
-
-        await self._process_random_events()
-
-
-        # 9. Clique Behavior (Phase 17-B)
-
-        await self._assign_social_roles()
-
-        await self._process_clique_behavior()
-
-
-        # 7. Idle chat
-
-        with get_db_session() as db:
-
-            alive_count = db.query(Agent).filter(Agent.status == "Alive").count()
-
-
-        if alive_count > 0 and random.random() < IDLE_CHAT_PROBABILITY:
-
-            asyncio.create_task(self._trigger_idle_chat())
-
-
-        # 8. Broadcast states
-
-        await self._broadcast_agents_status()
-
-
-        # Tick event
-
-        with get_db_session() as db:
-
-            world = db.query(WorldState).first()
-
-            day = world.day_count if world else 1
-
-            time_of_day = world.time_of_day if world else "day"
-
-            weather = world.weather if world else "Sunny"
-
-
-        await self._broadcast_event(EventType.TICK, {
-
-            "tick": self._tick_count,
-
-            "day": day,
-
-            "time_of_day": time_of_day,
-
-            "weather": weather,
-
-            "alive_agents": alive_count,
-
-            "game_mode": self._game_mode.value  # Phase 9: Include game mode
-
-        })
-
-
-        await asyncio.sleep(self._tick_interval)
-
-
-    logger.info("Game loop stopped")
-
-
-
+# --- _process_conversation_reply ---
 async def _process_conversation_reply(
 
     self, responder_id: int, responder_name: str, partner_id: int, partner_name: str,
@@ -3046,7 +2157,7 @@ async def _process_conversation_reply(
 
          # Broadcast response
 
-         await self._broadcast_event(EventType.SOCIAL_INTERACTION, {
+         await eng._broadcast_event(EventType.SOCIAL_INTERACTION, {
 
             "initiator_id": responder_id,
 
@@ -3069,7 +2180,7 @@ async def _process_conversation_reply(
 
          if should_reply_back:
 
-             self._active_conversations[partner_id] = {
+             eng._active_conversations[partner_id] = {
 
                 "partner_id": responder_id,
 
@@ -3077,7 +2188,7 @@ async def _process_conversation_reply(
 
                 "topic": topic,
 
-                "expires_at_tick": self._tick_count + 5 # Must respond within 5 ticks
+                "expires_at_tick": eng._tick_count + 5 # Must respond within 5 ticks
 
             }
 
@@ -3085,3 +2196,4 @@ async def _process_conversation_reply(
     except Exception as e:
 
         logger.error(f"Error in conversation reply: {e}")
+
